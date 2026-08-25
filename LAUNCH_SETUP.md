@@ -4,6 +4,25 @@ Everything needed to take this from "runs locally" to "live at
 dutchremit.dubiabank.com" — what's already done, what you do next,
 and what to send back so the remaining pieces can be finished.
 
+## Current status (updated live)
+
+- ✅ **Code repository**: pushed to
+  https://github.com/temitmessanger-cell/Dutch-Remittance
+- ✅ **Backend**: deployed and verified live at
+  `https://dutch-remittance-production.up.railway.app` — health
+  check and a real Supabase-backed query both confirmed working.
+- ✅ **Eversend webhook**: configured, pointing at the live backend,
+  secret set in Railway.
+- ⚠️ **Klasha credentials**: still placeholder values in Railway's
+  variables (`KLASHA_SECRET_KEY`, `KLASHA_ENCRYPTION_KEY`,
+  `KLASHA_BUSINESS_ID`) — everything Eversend-related works; anything
+  routed through Klasha (South Africa payouts, NGN/GHS virtual
+  accounts) will fail until these are filled in with real values.
+- ✅ **Production web build**: built locally with
+  `--dart-define=API_BASE_URL=https://dutch-remittance-production.up.railway.app`,
+  confirmed the URL is actually embedded in the compiled output.
+- ⏳ **Netlify deploy**: in progress — pending Netlify CLI login.
+
 ## The shape of the deployment
 
 - **Frontend** (`dutchremit.dubiabank.com`) — the Flutter web build,

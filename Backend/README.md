@@ -123,11 +123,6 @@ Supabase session token so requests are tied to a real signed-in user.
 
 ## What's NOT wired yet (the honest remainder)
 
-- **Card linking ("Add a Card")** — see "Cards — card creation is
-  real; card linking still isn't" below. This is the one piece I
-  deliberately did NOT build a full implementation for, because doing
-  so safely requires an answer from you first. (Card *creation*, a
-  separate feature, is fully wired — see "What's wired up" above.)
 - **Global Transfer** (the general 31-currency "any pair" tab) still
   only records a local receipt on send — it doesn't yet collect
   recipient/bank details, so there's nothing to hand the real payout
@@ -166,54 +161,53 @@ Supabase session token so requests are tied to a real signed-in user.
   transaction. Run through one real deposit and one real payout
   yourself once deployed, before pointing real users at it.
 
-## Cards — card creation is real; card linking still isn't
+## Cards — creation, linking, and card-to-card transfers are all real
 
-**Card creation/issuance is now fully implemented**, backed by
-Eversend's actual documented Cards API
-(https://eversend.readme.io/reference/create-a-card-user and
-.../create-a-card) — confirmed directly against their API reference,
-not guessed:
+**Card creation/issuance**, backed by Eversend's actual documented
+Cards API (https://eversend.readme.io/reference/create-a-card-user
+and .../create-a-card) — confirmed directly against their API
+reference, not guessed:
 
 1. `POST /api/v1/cards/user` — a one-time KYC profile per person
    (name, email, phone, address, government ID: National ID,
-   Passport, or Driving License). Eversend requires this before it
-   will issue anyone a card.
-2. `POST /api/v1/cards` — issues the actual card: a title, color
-   (blue/black/purple/orange/yellow), brand (visa/mastercard), and an
-   initial funding amount pulled from a wallet currency.
+   Passport, or Driving License — or, if the user chooses "proceed
+   without KYC" for a $1.50 fee, a synthesized identity: idType 'ID'
+   for African countries / 'FOREIGN' otherwise, with a generated
+   unique cardholder reference — see `card_kyc_identities` in
+   `supabase/schema.sql`). Eversend requires this before it will issue
+   anyone a card.
+2. `POST /api/v1/cards` — issues the actual card: a title, color, brand
+   (visa/mastercard), an initial funding amount, and a $3.50 one-time
+   or $1.10/month card-creation fee (`cardFeeType`).
 
 No raw card number or CVV passes through this backend in either
-direction — Eversend generates and holds the card; the app only ever
-references it by `cardId`. `create_virtual_card_screen.dart`
-implements this as a real 3-step flow (identity → design & funding →
-issue), wired to `wallet_screen.dart`'s "Create a Virtual Card" tile.
+direction for *issued* cards — Eversend generates and holds the card;
+the app only ever references it by `cardId`.
+`create_virtual_card_screen.dart` implements this as a real 3-step
+flow (identity → design & funding → issue).
 
-**Card *linking* — adding an existing debit/credit card you already
-own as a funding source — is a different feature, and still isn't
-built.** Eversend's own consumer app describes letting a user type an
-existing card's number directly into *their* app (with a $1
-verification charge), but that's their own end-user UI, not a
-confirmed public API for a third party like this backend to accept
-raw card numbers/CVVs over HTTP and forward on. Building that myself
-would mean this backend receiving and briefly holding full card data
-— a real PCI-DSS scope problem, not something to guess my way through
-the way card creation turned out to be resolvable.
+**Card *linking*** (`add_card_screen.dart`, gated by
+`card_link_verification_screen.dart`) — attaching a card the user
+already owns elsewhere as a funding source, via `POST /api/v1/cards/link`.
+Requires the user already hold at least one Dutch-Remit-issued card,
+identity confirmation, and a $2.10 retrieval fee. **Security note:**
+the CVV is read only in-memory for that one request and is never
+written to any file, log, or database column — no column for it exists
+on purpose (see `linked_cards` in `supabase/schema.sql`). The card
+number itself is stored masked (last 4 digits only), never in full.
+This is **not** a PCI-DSS-compliant card vault — a production system
+handling real cardholder data at scale needs the card tokenized
+client-side (a hosted field/iframe/SDK) so this backend never receives
+the raw number at all. Treat this implementation as prototype-grade.
 
-Before wiring up `add_card_screen.dart` (the "link an existing card"
-flow) for real, I need one of:
-1. Confirmation from Eversend (or their business/API support) of the
-   actual endpoint for linking a card as a funding source — ideally
-   one where the card number is tokenized client-side (a hosted
-   field / iframe / SDK) rather than passing through this backend at
-   all, or
-2. A different provider for card linking specifically, or
-3. A decision to drop card-linking and rely on card-to-card transfers
-   between cards already issued through the app, plus the wallet
-   funding methods (mobile money, bank) for moving money in/out.
-
-Until one of those is settled, `add_card_screen.dart` stays as
-local-only UI, same as before — issuance and linking are genuinely
-different problems, and only one of them had a real, safe answer.
+**Card-to-card transfers** (`card_to_card_transfer_screen.dart`) — move
+money between two of your own cards, or to another Dutch Remit user's
+card (found via `GET /api/v1/users/search`), via
+`POST /api/v1/cards/transfer`. Recorded in the `card_transfers` ledger
+table plus a matching pair of `transactions` rows. Neither Eversend
+nor Klasha expose a real card-to-card transfer rail, so this is an
+internal ledger entry — the same model as the "send to another Dutch
+Remit user" wallet-balance transfer, not a real card-network movement.
 
 ## Endpoint map
 
@@ -234,8 +228,8 @@ different problems, and only one of them had a real, safe answer.
 | Transaction history | `GET /api/v1/transactions` | `GET /transactions` (merged with Supabase's own log) |
 | Eversend webhook (status updates) | `POST /api/v1/webhooks/eversend` | — receives events, writes to `webhook_events` and updates matching `transactions` rows |
 | Legacy compatibility | `GET /Dutch Remit/v1/all-transactions` | Same shape the app already expects from `make_api_request.dart` |
-| Login | `POST /Dutch Remit/v3/user/login` | Supabase Auth `signInWithPassword` |
-| Registration | `POST /Dutch Remit/v1/user/register` | Supabase Auth `admin.createUser` + profile row |
+| Login / signup — request code | `POST /api/v1/auth/otp/request` | Supabase Auth `signInWithOtp` — no password anywhere in the app; `purpose: 'signup'` creates the user, `purpose: 'login'` requires an existing one |
+| Login / signup — verify code | `POST /api/v1/auth/otp/verify` | Supabase Auth `verifyOtp`; on signup also fills in name/address and generates a `dutch_remit_id` |
 | Session restore | `GET /Dutch Remit/v3/user/:userId` (+ `dutch_remit` alias) | Looks up `profiles` by id |
 | App info | `GET /Dutch Remit/app` | Static payload |
 | Username availability / reservation | `GET /api/v1/auth/check-username`, `POST /api/v1/auth/set-username` | Replaces the old Socket.IO "username request" flow |
@@ -249,7 +243,10 @@ different problems, and only one of them had a real, safe answer.
 | Notifications | `GET /api/v1/notifications`, `PATCH /api/v1/notifications/:id` | Reads/updates `notifications` |
 | Klasha webhook | `POST /api/v1/webhooks/klasha` | Logs to `webhook_events`, syncs matching `transactions` — no signature verification yet, see above |
 | **Unified send (any corridor):** used by Global Transfer / Diaspora to Africa / Africa to Africa / Quick Transfer / Withdrawal | `POST /api/v1/rates/quotation`, `POST /api/v1/payouts/send` | Auto-routes to Eversend or Klasha (`src/paymentRouter.js`) based on destination currency |
-| Klasha bank list / account resolution / payout / virtual account | `GET /api/v1/klasha/banks/:currency`, `POST /api/v1/klasha/resolve-account`, `POST /api/v1/klasha/payout`, `POST /api/v1/klasha/virtual-account`, `GET /api/v1/klasha/virtual-account/:email` | Confirmed real paths: `/wallet/merchant/bank/transfer/request/banks/:currency`, `/wallet/merchant/{businessId}/bank/transfer/v2/request` (3DES-encrypted), `/wallet/virtual/v3/business/create/account` (3DES-encrypted, NGN/GHS only) |
+| Klasha bank list / account resolution / payout / virtual account | `GET /api/v1/klasha/banks/:currency`, `POST /api/v1/klasha/resolve-account`, `POST /api/v1/klasha/payout`, `POST /api/v1/klasha/virtual-account`, `GET /api/v1/klasha/virtual-account/:email`, `GET /api/v1/klasha/virtual-accounts/mine` | Confirmed real paths: `/wallet/merchant/bank/transfer/request/banks/:currency`, `/wallet/merchant/{businessId}/bank/transfer/v2/request` (3DES-encrypted), `/wallet/virtual/v3/business/create/account` (3DES-encrypted, NGN/GHS only). Virtual-account creation charges $0.50 first / $1.50 each additional (see PRICING.md) and, once created, a payout to that currency automatically routes Eversend wallet → virtual account → final Klasha payout (`paymentRouter.js`'s `VIRTUAL_ACCOUNT_CURRENCIES` two-hop flow — see "Virtual Accounts" home-screen entry) |
+| Card linking ("Add a Card") | `POST /api/v1/cards/link` | Not an Eversend/Klasha call — an internal record in `linked_cards`, see "Cards" section above |
+| Card-to-card transfer | `POST /api/v1/cards/transfer`, `GET /api/v1/cards/mine` | Internal ledger (`card_transfers`), see "Cards" section above |
+| User directory search (for Send, card transfers) | `GET /api/v1/users/search?q=`, `POST /api/v1/users/verify` | Reads `profiles` — search by name/username, or verify a specific user exists by email/`dutch_remit_id` before saving them as a contact |
 
 Every user-scoped route expects `Authorization: <token>` (also accepts
 the `Bearer <token>` form) — the same header shape the Flutter app's
