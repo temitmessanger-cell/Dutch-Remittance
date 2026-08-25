@@ -68,7 +68,7 @@ function encrypt3DES(payload, encryptionKey) {
 
 class KlashaClient {
   constructor({ baseUrl, publicKey, secretKey, encryptionKey, businessId }) {
-    this.baseUrl = baseUrl || 'https://api.klasha.com';
+    this.baseUrl = baseUrl || 'https://gate.klasapps.com';
     this.publicKey = publicKey;
     this.secretKey = secretKey;
     this.encryptionKey = encryptionKey;
