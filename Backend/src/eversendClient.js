@@ -14,11 +14,14 @@ const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
 /**
  * Eversend's /auth/token endpoint separately requires an `Origin`
  * header matching the app's registered domain (confirmed live:
- * omitting it returns 401 "Invalid request origin" even from a
- * whitelisted IP). Reuses the first entry of ALLOWED_ORIGIN so there
- * isn't a second place to keep the domain in sync.
+ * omitting it returns 401 "Invalid request origin" even from a whitelisted IP). 
+ * EVERSEND_ORIGIN can override the frontend CORS origin when Eversend has a 
+ * separate registered origin.
  */
-const eversendOrigin = (process.env.ALLOWED_ORIGIN || '').split(',')[0].trim() || undefined;
+const eversendOrigin =
+  process.env.EVERSEND_ORIGIN?.trim() ||
+  (process.env.ALLOWED_ORIGIN || '').split(',')[0].trim() ||
+  undefined;
 
 /**
  * Thin wrapper around the Eversend REST API.
@@ -91,6 +94,7 @@ class EversendClient {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
+          ...(eversendOrigin ? { Origin: eversendOrigin } : {}),
         },
         timeout: 20000,
         httpsAgent: proxyAgent,

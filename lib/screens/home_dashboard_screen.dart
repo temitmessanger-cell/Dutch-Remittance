@@ -97,14 +97,19 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
       child: CircleAvatar(
         backgroundColor: AppColors.surfaceAlt,
         radius: 20,
-        child: ClipOval(
-          child: Image.network(
-            "${ApiConstants.baseUrl}/dist/images/Dutch Remit_images/Dutch Remit_users/${widget.user['gender']?.toString().toLowerCase() ?? ''}/${widget.user['avatar']}",
-            height: 36,
-            width: 36,
-            fit: BoxFit.cover,
-          ),
-        ),
+        child: widget.user['avatar'] == null
+            ? Text(
+                userFirstName.isNotEmpty ? userFirstName[0].toUpperCase() : '?',
+                style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.primary),
+              )
+            : ClipOval(
+                child: Image.network(
+                  "${ApiConstants.baseUrl}/dist/images/Dutch Remit_images/Dutch Remit_users/${widget.user['gender']?.toString().toLowerCase() ?? ''}/${widget.user['avatar']}",
+                  height: 36,
+                  width: 36,
+                  fit: BoxFit.cover,
+                ),
+              ),
       ),
     );
 
@@ -473,7 +478,7 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
             final contact = contacts[index];
             final String name = contact['name']?.toString() ?? '';
             Widget avatarContent;
-            if (contact.containsKey('avatar')) {
+            if (contact['avatar'] != null && contact['avatar'].toString().isNotEmpty) {
               avatarContent = ClipOval(
                 child: Image.network(
                   "${ApiConstants.baseUrl}/dist/images/Dutch Remit_images/brands_and_businesses/${contact['avatar']}",
@@ -823,7 +828,8 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
               if (currentTransactions[index]
                       .containsKey('transactionMemberBusinessWebsite') &&
                   currentTransactions[index]
-                      .containsKey('transactionMemberAvatar')) {
+                        .containsKey('transactionMemberAvatar') &&
+                      currentTransactions[index]['transactionMemberAvatar'] != null) {
                 return ClipOval(
                   child: AspectRatio(
                     aspectRatio: 1.0 / 1.0,
@@ -850,7 +856,8 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
               } else if (currentTransactions[index]
                       .containsKey('transactionMemberEmail') &&
                   currentTransactions[index]
-                      .containsKey('transactionMemberAvatar') &&
+                        .containsKey('transactionMemberAvatar') &&
+                      currentTransactions[index]['transactionMemberAvatar'] != null &&
                   snapshot.hasData) {
                 if (snapshot.data == 404) {
                   return ClipOval(

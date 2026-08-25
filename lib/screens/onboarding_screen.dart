@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:dutch_remit/database/hadwin_user_device_info_storage.dart';
+import 'package:dutch_remit/database/login_info_storage.dart';
 import 'package:dutch_remit/database/user_data_storage.dart';
 import 'package:dutch_remit/components/main_app_screen/tabbed_layout_component.dart';
 import 'package:dutch_remit/screens/login_screen.dart';
@@ -64,7 +65,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     if (!mounted) return;
 
-    final bool hasSession = userData.isNotEmpty && userData['email'] != null;
+    final loginData = await LoginInfoStorage().getPersistentLoginData;
+    final authToken = loginData['authToken']?.toString().trim();
+    final bool hasSession =
+      userData.isNotEmpty && userData['email'] != null && authToken != null && authToken.isNotEmpty;
     Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(
             builder: (context) => hasSession
