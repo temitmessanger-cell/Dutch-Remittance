@@ -7,7 +7,6 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
 import 'package:dutch_remit/components/main_app_screen/local_splash_screen_component.dart';
 
-import 'package:dutch_remit/components/main_app_screen/tabbed_layout_component.dart';
 import 'package:dutch_remit/screens/onboarding_screen.dart';
 import 'package:dutch_remit/database/cards_storage.dart';
 import 'package:dutch_remit/database/contacts_storage.dart';
@@ -21,7 +20,6 @@ import 'package:dutch_remit/providers/live_transactions_provider.dart';
 import 'package:dutch_remit/providers/tab_navigation_provider.dart';
 
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
-import 'package:dutch_remit/screens/login_screen.dart';
 import 'package:dutch_remit/utilities/make_api_request.dart';
 
 import 'package:provider/provider.dart';

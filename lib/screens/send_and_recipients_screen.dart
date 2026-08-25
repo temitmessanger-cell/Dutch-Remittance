@@ -2,12 +2,10 @@ import 'dart:async';
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:dutch_remit/hadwin_components.dart';
 import 'package:dutch_remit/screens/my_qr_code_screen.dart';
 import 'package:dutch_remit/screens/enter_code_manually_screen.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
-import 'package:dutch_remit/components/shared/transfer_info_widgets.dart';
 
 /// The "Recipient" sub-tab of the Send hub: pick a contact or business
 /// to pay or request money from, manage saved contacts, and see recent

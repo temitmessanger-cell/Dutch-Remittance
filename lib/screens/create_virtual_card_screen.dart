@@ -38,7 +38,6 @@ class CreateVirtualCardScreen extends StatefulWidget {
 
 class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
   int _step = 0;
-  bool _issued = false;
   bool _isSubmitting = false;
   String? _errorMessage;
   String? _cardUserId;
@@ -270,7 +269,6 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
 
     setState(() {
       _isSubmitting = false;
-      _issued = true;
       _step = 2;
     });
   }

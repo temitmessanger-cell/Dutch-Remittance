@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:dutch_remit/database/hadwin_user_device_info_storage.dart';
-import 'package:dutch_remit/database/login_info_storage.dart';
 import 'package:dutch_remit/database/user_data_storage.dart';
 import 'package:dutch_remit/components/main_app_screen/tabbed_layout_component.dart';
 import 'package:dutch_remit/screens/login_screen.dart';

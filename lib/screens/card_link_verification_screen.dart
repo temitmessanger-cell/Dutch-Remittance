@@ -27,7 +27,6 @@ class _CardLinkVerificationScreenState extends State<CardLinkVerificationScreen>
 
   bool _isChecking = true;
   bool _isEligible = false;
-  bool _isContinuing = false;
   String? _errorMessage;
 
   static const double kCardLinkFee = 2.1;
