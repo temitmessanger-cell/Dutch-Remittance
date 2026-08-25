@@ -1,0 +1,102 @@
+# Netlify configuration for Dutch Remit.
+#
+# This site has two parts:
+#   1. The Flutter web build (static files) — published from /build/web
+#   2. The Plaid backend, as Netlify Functions — in /netlify/functions
+#
+# Build: `flutter build web` produces /build/web, which is what gets
+# published. The functions deploy alongside it automatically.
+
+[build]
+  # Flutter's web build output. Run `flutter build web` before deploying
+  # (or let Netlify run it — see the [build.command] note below if you
+  # want Netlify to build Flutter itself, which requires the Flutter SDK
+  # to be available in the build image; simplest is to build locally /
+  # in CI and just let Netlify publish the output).
+  publish = "build/web"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Clean URLs: the Flutter app calls e.g. /api/plaid/create-link-token,
+# which gets transparently routed to the matching function. This means
+# PlaidApiConstants.baseUrl in the Flutter app can just be your real
+# domain — no /.netlify/functions/... path ever needs to appear in the
+# app's code.
+[[redirects]]
+  from = "/api/plaid/create-link-token"
+  to = "/.netlify/functions/create-link-token"
+  status = 200
+
+[[redirects]]
+  from = "/api/plaid/exchange-public-token"
+  to = "/.netlify/functions/exchange-public-token"
+  status = 200
+
+[[redirects]]
+  from = "/api/plaid/accounts"
+  to = "/.netlify/functions/get-accounts"
+  status = 200
+
+[[redirects]]
+  from = "/api/plaid/transactions"
+  to = "/.netlify/functions/get-transactions"
+  status = 200
+
+[[redirects]]
+  from = "/api/plaid/recipients"
+  to = "/.netlify/functions/get-recipients"
+  status = 200
+
+[[redirects]]
+  from = "/api/plaid/transfer"
+  to = "/.netlify/functions/transfer"
+  status = 200
+
+[[redirects]]
+  from = "/api/plaid/simulate-transfer"
+  to = "/.netlify/functions/simulate-transfer"
+  status = 200
+
+[[redirects]]
+  from = "/api/plaid/simulate-transaction"
+  to = "/.netlify/functions/simulate-transaction"
+  status = 200
+
+[[redirects]]
+  from = "/api/plaid/health"
+  to = "/.netlify/functions/health"
+  status = 200
+
+# Real static SEO pages (plain HTML, not part of the Flutter SPA) —
+# served as their own crawlable URLs so Google has actual distinct
+# content behind /about, /faq, /terms, /privacy instead of every path
+# falling through to the same canvas-rendered app shell.
+[[redirects]]
+  from = "/about"
+  to = "/about.html"
+  status = 200
+
+[[redirects]]
+  from = "/faq"
+  to = "/faq.html"
+  status = 200
+
+[[redirects]]
+  from = "/terms"
+  to = "/terms.html"
+  status = 200
+
+[[redirects]]
+  from = "/privacy"
+  to = "/privacy.html"
+  status = 200
+
+# Flutter web is a single-page app — any route not matched above (and not
+# a real static file) should fall through to index.html so in-app
+# navigation/refresh works correctly.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

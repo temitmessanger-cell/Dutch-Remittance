@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://dutchremit.dubiabank.com/sitemap.xml

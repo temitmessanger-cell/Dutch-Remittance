@@ -1,0 +1,214 @@
+<!DOCTYPE html><html><head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+
+  <!-- SEO: primary meta tags -->
+  <meta name="description" content="Dutch Remit is Africa’s biggest cross-border money transfer platform, connecting 15+ African countries with 120+ countries worldwide for international transfers and payments.">
+  <meta name="keywords" content="Dutch Remit, cross-border transfers, African remittances, international money transfer, send money abroad, receive money internationally, currency exchange, global payments">
+  <meta name="author" content="Dutch Remit">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://dutchremit.dubiabank.com/">
+
+  <!-- Open Graph / Facebook, LinkedIn, etc. link previews -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://dutchremit.dubiabank.com/">
+  <meta property="og:title" content="Dutch Remit — Africa’s Biggest Cross-Border Money Transfer Platform">
+  <meta property="og:description" content="Dutch Remit is Africa’s biggest cross-border money transfer and international remittance platform — connecting 15+ African countries with 120+ countries worldwide for international transfers and payments.">
+  <meta property="og:image" content="https://dutchremit.dubiabank.com/icons/Icon-512.png">
+  <meta property="og:site_name" content="Dutch Remit">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="https://dutchremit.dubiabank.com/">
+  <meta name="twitter:title" content="Dutch Remit — Africa’s Biggest Cross-Border Money Transfer Platform">
+  <meta name="twitter:description" content="Dutch Remit is Africa’s biggest cross-border money transfer and international remittance platform, connecting 15+ African countries with 120+ countries worldwide.">
+  <meta name="twitter:image" content="https://dutchremit.dubiabank.com/icons/Icon-512.png">
+
+  <!-- Structured data: tells search engines this is a financial service -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "name": "Dutch Remit",
+        "url": "https://dutchremit.dubiabank.com/",
+        "logo": "https://dutchremit.dubiabank.com/icons/Icon-512.png",
+        "sameAs": []
+      },
+      {
+        "@type": "WebSite",
+        "url": "https://dutchremit.dubiabank.com/",
+        "name": "Dutch Remit",
+        "description": "Dutch Remit is Africa’s biggest cross-border money transfer platform, connecting 15+ African countries with 120+ countries worldwide for international transfers and payments."
+      },
+      {
+        "@type": "FinancialService",
+        "name": "Dutch Remit",
+        "description": "Dutch Remit is Africa’s biggest cross-border money transfer and international remittance platform — connecting 15+ African countries with 120+ countries worldwide for international transfers and payments.",
+        "areaServed": ["Africa", "Worldwide"]
+      }
+    ]
+  }
+  </script>
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Dutch Remit">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png">
+
+  <title>Dutch Remit — Africa’s Biggest Cross-Border Money Transfer Platform</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" type="text/css" href="splash/style.css">
+  <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
+  <script src="splash/splash.js"></script>
+
+  <!-- Required for plaid_flutter to work on web — without this, opening
+       Plaid Link will fail silently in the browser. -->
+  <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+</head>
+<body>
+  <style>
+    body {
+      margin: 0;
+      background: #f6f8fb;
+      font-family: Arial, sans-serif;
+    }
+
+    #seo-shell {
+      position: relative;
+      /* Same stacking tier as #splash below (z-index: 0, not 1) — the
+         Flutter engine appends its own root element to <body> *after*
+         this div in source order, so once it paints, it naturally
+         covers this shell for real users without needing JS to hide
+         or remove it. This div is intentionally NEVER hidden or
+         removed: it's the only text content a crawler that reads the
+         DOM (Googlebot included, once it runs the page's JS) will
+         ever find, since the live app renders to a <canvas> that has
+         no extractable text at all. See index.html's closing script
+         for the corresponding first-frame handling. */
+      z-index: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 20px;
+      background: linear-gradient(180deg, #f8fbff 0%, #edf4ff 100%);
+      color: #1d2a3a;
+      pointer-events: none;
+    }
+
+    #seo-shell a { pointer-events: auto; }
+
+    #seo-shell-inner {
+      max-width: 760px;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(18, 63, 110, 0.12);
+      border-radius: 18px;
+      box-shadow: 0 12px 32px rgba(20, 53, 92, 0.08);
+      padding: 32px 28px;
+    }
+
+    #seo-shell h1 {
+      margin: 0 0 16px;
+      font-size: clamp(2rem, 5vw, 3rem);
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+    }
+
+    #seo-shell p {
+      margin: 0 0 12px;
+      font-size: 1.06rem;
+      line-height: 1.7;
+      color: #2b3a4b;
+    }
+
+    #seo-shell ul {
+      margin: 16px 0 0;
+      padding-left: 20px;
+      font-size: 1rem;
+      line-height: 1.7;
+      color: #2b3a4b;
+    }
+
+    #splash {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      background: #f8fbff;
+      z-index: 0;
+    }
+  </style>
+
+  <div id="seo-shell" aria-label="Dutch Remit overview">
+    <div id="seo-shell-inner">
+      <h1>Dutch Remit</h1>
+      <p>Dutch Remit is a cross-border money transfer and international remittance platform connecting African communities with global payment services.</p>
+      <p>Users can send money, manage transfers, track payments, and access financial services through a secure digital experience designed for international transfers and account-based payments.</p>
+      <ul>
+        <li>International money transfer services</li>
+        <li>Cross-border payments across multiple countries</li>
+        <li>Secure remittance and transfer experience</li>
+      </ul>
+      <p><a href="/about">About</a> &middot; <a href="/faq">FAQ</a> &middot; <a href="/terms">Terms of Use</a> &middot; <a href="/privacy">Privacy Policy</a></p>
+    </div>
+  </div>
+
+  <picture id="splash">
+      <source srcset="splash/img/light-1x.png 1x, splash/img/light-2x.png 2x, splash/img/light-3x.png 3x, splash/img/light-4x.png 4x" media="(prefers-color-scheme: light)">
+      <source srcset="splash/img/dark-1x.png 1x, splash/img/dark-2x.png 2x, splash/img/dark-3x.png 3x, splash/img/dark-4x.png 4x" media="(prefers-color-scheme: dark)">
+      <img class="center" aria-hidden="true" src="splash/img/light-1x.png" alt="">
+  </picture>
+
+  <script>
+    document.documentElement.classList.add('js-enabled');
+
+    // Flutter's engine dispatches this event the moment the very first
+    // real frame has painted — this is Flutter's own documented hook
+    // for retiring a loading/splash screen (window 'load' fires only
+    // after every last asset on the page has downloaded, which is much
+    // later and unrelated to whether the app has actually rendered).
+    // #seo-shell above is deliberately NOT touched here: it stays in
+    // the DOM permanently as the page's real, crawlable content, and
+    // is only ever covered visually (not hidden) once Flutter paints
+    // on top of it — see the z-index note on #seo-shell's CSS.
+    window.addEventListener('flutter-first-frame', function () {
+      document.documentElement.classList.add('flutter-loaded');
+      window.removeSplashFromWeb?.();
+    }, { once: true });
+
+    // Safety net: if the engine never dispatches flutter-first-frame
+    // (blocked/slow WASM download, a script error, an unsupported
+    // browser), clear the branded splash image after a timeout so it
+    // doesn't linger forever. #seo-shell remains visible underneath
+    // either way, so there is never a truly blank page.
+    setTimeout(function () {
+      window.removeSplashFromWeb?.();
+    }, 8000);
+  </script>
+
+  <script src="flutter_bootstrap.js" async=""></script>
+</body></html>

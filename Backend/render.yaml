@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: dutch-remit-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: ALLOWED_ORIGIN
+        value: https://dutchremit.dubiabank.com
+      - key: EVERSEND_BASE_URL
+        value: https://api.eversend.co/v1
+      - key: EVERSEND_CLIENT_ID
+        sync: false
+      - key: EVERSEND_CLIENT_SECRET
+        sync: false
+      - key: EVERSEND_WEBHOOK_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false

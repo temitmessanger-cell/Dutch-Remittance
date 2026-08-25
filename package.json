@@ -1,0 +1,10 @@
+{
+  "name": "dutch-remit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dutch Remit — Flutter web app + Plaid Netlify Functions backend.",
+  "dependencies": {
+    "@upstash/redis": "^1.38.0",
+    "plaid": "^41.0.0"
+  }
+}
