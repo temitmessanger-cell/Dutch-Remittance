@@ -5,20 +5,21 @@ import 'package:dutch_remit/utilities/currency_country_data.dart';
 /// Bottom sheet for picking a currency/country, used for both the "You
 /// send" and "They get" pickers in the international transfer flow.
 Future<String?> showCurrencyPicker(
-    BuildContext context, {required String currentCode}) {
+    BuildContext context, {required String currentCode, bool onlyLiveCorridors = false}) {
   return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.white,
     shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.lg))),
-    builder: (context) => _CurrencyPickerSheet(currentCode: currentCode),
+    builder: (context) => _CurrencyPickerSheet(currentCode: currentCode, onlyLiveCorridors: onlyLiveCorridors),
   );
 }
 
 class _CurrencyPickerSheet extends StatefulWidget {
   final String currentCode;
-  const _CurrencyPickerSheet({required this.currentCode});
+  final bool onlyLiveCorridors;
+  const _CurrencyPickerSheet({required this.currentCode, this.onlyLiveCorridors = false});
 
   @override
   State<_CurrencyPickerSheet> createState() => _CurrencyPickerSheetState();
@@ -29,7 +30,8 @@ class _CurrencyPickerSheetState extends State<_CurrencyPickerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = kSupportedCurrencyCountries.where((c) {
+    final baseList = widget.onlyLiveCorridors ? kLiveEversendCurrencies : kSupportedCurrencyCountries;
+    final filtered = baseList.where((c) {
       if (_query.isEmpty) return true;
       final q = _query.toLowerCase();
       return c.currencyCode.toLowerCase().contains(q) ||

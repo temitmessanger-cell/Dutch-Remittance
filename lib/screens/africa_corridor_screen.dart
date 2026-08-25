@@ -61,6 +61,9 @@ class AfricaCorridorScreen extends StatefulWidget {
 class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   final CurrencyConversionService _currencyService = CurrencyConversionService();
   final TextEditingController _amountController = TextEditingController(text: '100');
+  final TextEditingController _recipientNameController = TextEditingController();
+  final TextEditingController _recipientPhoneController = TextEditingController();
+  bool _saveRecipient = true;
 
   late AfricanCountryInfo _destination;
   late String _sourceCurrency;
@@ -68,6 +71,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   double? _convertedAmount;
   double? _exchangeRate;
   double? _platformFeeAmount;
+  Map<String, dynamic>? _lastQuote;
   bool _isQuoting = false;
   Timer? _debounce;
   bool _isProcessing = false;
@@ -98,6 +102,8 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     _debounce?.cancel();
     _amountController.removeListener(_onAmountChanged);
     _amountController.dispose();
+    _recipientNameController.dispose();
+    _recipientPhoneController.dispose();
     super.dispose();
   }
 
@@ -163,6 +169,8 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
       },
       authKey: widget.userAuthKey,
     );
+    _lastQuote = response.containsKey('apiRequestError') || response['error'] != null ? null : response;
+
     final feeBreakdown = response['feeBreakdown'];
     if (feeBreakdown is Map && feeBreakdown['totalFee'] != null) {
       return double.tryParse(feeBreakdown['totalFee'].toString());
@@ -170,8 +178,19 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     return null;
   }
 
+  // The JWT Eversend's own /payouts endpoint requires (confirmed from
+  // their docs: "token" is a required field on the actual payout call)
+  // — nested at data.data.token on the quotation response.
+  String? get _quotationToken {
+    final data = _lastQuote?['data'];
+    if (data is Map && data['data'] is Map) {
+      return (data['data'] as Map)['token']?.toString();
+    }
+    return null;
+  }
+
   Future<void> _pickSourceCurrency() async {
-    final picked = await showCurrencyPicker(context, currentCode: _sourceCurrency);
+    final picked = await showCurrencyPicker(context, currentCode: _sourceCurrency, onlyLiveCorridors: true);
     if (picked != null && picked != _sourceCurrency) {
       setState(() {
         _sourceCurrency = picked;
@@ -219,6 +238,24 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
       setState(() => _errorMessage = "Enter a valid amount.");
       return;
     }
+    if (_recipientNameController.text.trim().isEmpty) {
+      setState(() => _errorMessage = "Enter the recipient's full name.");
+      return;
+    }
+    if (_recipientPhoneController.text.trim().isEmpty) {
+      setState(() => _errorMessage = "Enter the recipient's phone number.");
+      return;
+    }
+    if (_payoutMethod == 1) {
+      setState(() => _errorMessage =
+          "Bank account payouts on this screen aren't wired up yet — use Global Transfer for a real bank transfer, or pick Mobile money here.");
+      return;
+    }
+    if (_quotationToken == null) {
+      setState(() => _errorMessage =
+          "Couldn't lock in a rate for this transfer — try refreshing the amount, or the sending wallet may not have enough balance to cover it yet.");
+      return;
+    }
 
     setState(() {
       _isProcessing = true;
@@ -226,15 +263,23 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     });
 
     final transactionRef = 'DR-${DateTime.now().millisecondsSinceEpoch}';
+    final nameParts = _recipientNameController.text.trim().split(' ');
+    final firstName = nameParts.first;
+    final lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : firstName;
     final payoutResult = await sendData(
       urlPath: "/api/v1/payouts/send",
       data: {
+        "token": _quotationToken,
+        "firstName": firstName,
+        "lastName": lastName,
+        "phoneNumber": _recipientPhoneController.text.trim(),
         "sourceWallet": _isDiaspora ? _sourceCurrency : (_sourceAfricanCountry?.currencyCode ?? 'USD'),
         "amount": amount,
         "amountType": "SOURCE",
-        "type": _payoutMethod == 1 ? "bank" : "momo",
-        "isBank": _payoutMethod == 1,
-        "isMomo": _payoutMethod != 1,
+        "type": "momo",
+        "isBank": false,
+        "isMomo": true,
+        "country": _destination.countryCode,
         "destinationCountry": _destination.countryCode,
         "destinationCurrency": _destination.currencyCode,
         "currency": _destination.currencyCode,
@@ -298,6 +343,32 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     }
 
     final now = DateTime.now();
+
+    // Best-effort save to the real beneficiaries API (POST
+    // /api/v1/beneficiaries) so this recipient can be reused next
+    // time instead of re-entering their details from scratch. Never
+    // blocks or fails the transfer itself — the money has already
+    // moved by this point, so a beneficiary-save hiccup is silently
+    // ignored rather than surfaced as a transfer error.
+    if (_saveRecipient) {
+      try {
+        await sendData(
+          urlPath: "/api/v1/beneficiaries",
+          data: {
+            "firstName": firstName,
+            "lastName": lastName,
+            "country": _destination.countryCode,
+            "phoneNumber": _recipientPhoneController.text.trim(),
+            "isBank": false,
+            "isMomo": true,
+          },
+          authKey: widget.userAuthKey,
+        );
+      } catch (_) {
+        // Non-fatal — see comment above.
+      }
+    }
+
     final receipt = {
       'transactionMemberName':
           "Transfer to ${_destination.countryName} (${_destination.currencyCode})",
@@ -610,6 +681,24 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
             Expanded(child: _payoutMethodChip(2, "Dutch Bank")),
           ],
         ),
+        const SizedBox(height: 16),
+        Text("RECIPIENT",
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: AppColors.textMuted)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _recipientNameController,
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
+          decoration: _recipientFieldDecoration("Recipient's full name"),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _recipientPhoneController,
+          keyboardType: TextInputType.phone,
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
+          decoration: _recipientFieldDecoration("Mobile money number, e.g. +234..."),
+        ),
+        const SizedBox(height: 10),
+        _buildSaveRecipientToggle(),
         const SizedBox(height: 14),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -901,6 +990,24 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
             ],
           ),
         ),
+        const SizedBox(height: 16),
+        Text("RECIPIENT",
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: AppColors.textMuted)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _recipientNameController,
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
+          decoration: _recipientFieldDecoration("Recipient's full name"),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _recipientPhoneController,
+          keyboardType: TextInputType.phone,
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
+          decoration: _recipientFieldDecoration("Mobile money number, e.g. +234..."),
+        ),
+        const SizedBox(height: 10),
+        _buildSaveRecipientToggle(),
         const SizedBox(height: 14),
         const FeeTiersRow(),
         const DeliveryTimeRow(range: "Instant · 1 min to 1 day"),
@@ -927,6 +1034,56 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  InputDecoration _recipientFieldDecoration(String hint) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: TextStyle(color: AppColors.textMuted, fontWeight: FontWeight.w500),
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadii.md), borderSide: BorderSide(color: AppColors.border)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadii.md), borderSide: BorderSide(color: AppColors.border)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadii.md), borderSide: BorderSide(color: AppColors.primary)),
+    );
+  }
+
+  /// A "Save this recipient" checkbox — when on, the recipient's name,
+  /// phone and country are saved via the real POST /api/v1/beneficiaries
+  /// endpoint right after a successful send (see the save block after
+  /// payoutResult succeeds above), so they can be picked again next
+  /// time instead of re-typing everything from scratch.
+  Widget _buildSaveRecipientToggle() {
+    return InkWell(
+      onTap: () => setState(() => _saveRecipient = !_saveRecipient),
+      borderRadius: BorderRadius.circular(AppRadii.sm),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: Checkbox(
+                value: _saveRecipient,
+                onChanged: (v) => setState(() => _saveRecipient = v ?? true),
+                activeColor: AppColors.primary,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                "Save this recipient for next time",
+                style: TextStyle(fontSize: 13, color: AppColors.inkMuted, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

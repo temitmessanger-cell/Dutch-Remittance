@@ -35,6 +35,28 @@ create table if not exists public.profiles (
   eversend_card_user_id text,
   created_at timestamptz not null default now()
 );
+
+-- Defensive: `create table if not exists` above is a no-op if
+-- `profiles` already existed from an earlier run of this file — it
+-- will NOT retroactively add columns added since then (this is
+-- exactly what caused "column dutch_remit_id does not exist" when
+-- re-running against a database created before that column existed).
+-- Every column is re-asserted here with `add column if not exists`
+-- so re-running this file is genuinely safe regardless of which
+-- earlier version of this schema created the live table.
+alter table public.profiles add column if not exists auth_user_id uuid unique references auth.users (id) on delete cascade;
+alter table public.profiles add column if not exists dutch_remit_id text unique;
+alter table public.profiles add column if not exists username text unique;
+alter table public.profiles add column if not exists first_name text;
+alter table public.profiles add column if not exists last_name text;
+alter table public.profiles add column if not exists email text;
+alter table public.profiles add column if not exists phone_number text;
+alter table public.profiles add column if not exists address text;
+alter table public.profiles add column if not exists country text;
+alter table public.profiles add column if not exists avatar_url text;
+alter table public.profiles add column if not exists eversend_card_user_id text;
+alter table public.profiles add column if not exists created_at timestamptz not null default now();
+
 create index if not exists profiles_auth_user_id_idx on public.profiles (auth_user_id);
 create index if not exists profiles_dutch_remit_id_idx on public.profiles (dutch_remit_id);
 

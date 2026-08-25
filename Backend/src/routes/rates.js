@@ -15,20 +15,24 @@ const router = express.Router();
 const EXCHANGE_MARKUP_RATE = 0.005;
 
 function applyExchangeMarkup(providerData) {
-  const payload = providerData?.data ?? providerData ?? {};
-  const adjusted = { ...payload };
-  for (const key of ['amount', 'convertedAmount', 'destinationAmount', 'toAmount']) {
-    if (typeof payload[key] === 'number') {
-      adjusted[key] = +(payload[key] * (1 - EXCHANGE_MARKUP_RATE)).toFixed(2);
-    }
+  // Confirmed live (2026-08-25): POST /exchanges/quotation returns
+  // { code, data: { expires, token, quotation: { destAmount, ... } },
+  // success } — the converted amount is quotation.destAmount, nested
+  // two levels under providerData.data, not a top-level `amount`/
+  // `convertedAmount`/etc. the way an earlier version of this function
+  // assumed (which silently left every real quote un-marked-up).
+  const outer = providerData?.data ?? providerData ?? {};
+  const quotation = outer?.data?.quotation ?? outer?.quotation;
+  if (quotation && typeof quotation.destAmount === 'number') {
+    quotation.destAmount = +(quotation.destAmount * (1 - EXCHANGE_MARKUP_RATE)).toFixed(2);
   }
-  return { ...providerData, data: adjusted };
+  return providerData;
 }
 
 // POST /api/v1/rates/quotation — the ONE quotation endpoint every
 // Send Abroad tab (Global Transfer, Diaspora to Africa, Africa to
-// Africa, Quick Transfer) and Withdrawal should call. Picks Eversend
-// or Klasha automatically based on the destination currency (see
+// Africa, Quick Transfer) and Withdrawal should call. Resolves to
+// Eversend if the destination currency is a confirmed corridor (see
 // paymentRouter.js / corridors.js) so the app never has to know or
 // care which provider is behind a given corridor.
 router.post('/quotation', async (req, res, next) => {
@@ -63,9 +67,14 @@ router.post('/exchange-quotation', async (req, res, next) => {
         .status(400)
         .json({ error: 'source, destination and amount are required.' });
     }
+    // Confirmed live (2026-08-25): Eversend's own endpoint rejects
+    // `source`/`destination` ("not allowed") and requires `from`/`to`
+    // instead — this app's own request/response shape (source,
+    // destination) is kept as-is for whatever calls this route; only
+    // the field names sent to Eversend itself were wrong.
     const data = await eversend.post('/exchanges/quotation', {
-      source,
-      destination,
+      from: source,
+      to: destination,
       amount,
     });
     res.json(applyExchangeMarkup({ data }));

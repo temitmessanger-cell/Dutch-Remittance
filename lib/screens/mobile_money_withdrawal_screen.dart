@@ -11,9 +11,10 @@ import 'package:dutch_remit/components/shared/transaction_receipt_dialog.dart';
 /// The real withdrawal flow for Mobile Money / Orange Money: pick the
 /// destination country, enter the recipient phone number, quote and
 /// confirm — calling the backend's unified quotation + send endpoints
-/// (POST /api/v1/rates/quotation, POST /api/v1/payouts/send), which
-/// automatically route to Eversend or Klasha depending on the
-/// destination currency. No fake instant debit.
+/// (POST /api/v1/rates/quotation, POST /api/v1/payouts/send). A
+/// country not in the backend's confirmed corridor set is marked
+/// "Unavailable" here and the quotation call returns a clear error
+/// rather than silently failing. No fake instant debit.
 class MobileMoneyWithdrawalScreen extends StatefulWidget {
   final Map<String, dynamic> user;
   final String? userAuthKey;
@@ -36,6 +37,7 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
   AfricanCountryInfo _country = kAfricanCountries.first;
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _nameController = TextEditingController();
+  bool _saveRecipient = true;
 
   bool _isQuoting = false;
   bool _isSending = false;
@@ -117,6 +119,17 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
     setState(() => _quote = result);
   }
 
+  // The JWT Eversend's own /payouts endpoint requires (confirmed from
+  // their docs: "token" is a required field on the actual payout call)
+  // — nested at data.data.token on the quotation response.
+  String? get _quotationToken {
+    final data = _quote?['data'];
+    if (data is Map && data['data'] is Map) {
+      return (data['data'] as Map)['token']?.toString();
+    }
+    return null;
+  }
+
   Future<void> _confirmWithdrawal() async {
     final phone = _phoneController.text.trim();
     if (phone.isEmpty || !phone.startsWith('+')) {
@@ -125,6 +138,11 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
     }
     if (_nameController.text.trim().isEmpty) {
       setState(() => _errorMessage = "Enter the recipient's full name.");
+      return;
+    }
+    if (_quotationToken == null) {
+      setState(() => _errorMessage =
+          "Couldn't lock in a rate for this transfer — try refreshing the quote, or the sending wallet may not have enough balance to cover it yet.");
       return;
     }
 
@@ -141,6 +159,7 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
     final result = await sendData(
       urlPath: "/api/v1/payouts/send",
       data: {
+        "token": _quotationToken,
         "firstName": firstName,
         "lastName": lastName,
         "country": _country.countryCode,
@@ -151,7 +170,6 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
         "currency": _country.currencyCode,
         "destinationCurrency": _country.currencyCode,
         "destinationCountry": _country.countryCode,
-        "quotationToken": _quote?['data']?['quotationToken'],
         "transactionRef": transactionRef,
       },
       authKey: widget.userAuthKey,
@@ -168,6 +186,27 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
     }
 
     final now = DateTime.now();
+
+    // Best-effort save to the real beneficiaries API — never blocks
+    // or fails the withdrawal itself (see africa_corridor_screen.dart
+    // for the same pattern).
+    if (_saveRecipient) {
+      try {
+        await sendData(
+          urlPath: "/api/v1/beneficiaries",
+          data: {
+            "firstName": firstName,
+            "lastName": lastName,
+            "country": _country.countryCode,
+            "phoneNumber": phone,
+            "isBank": false,
+            "isMomo": true,
+          },
+          authKey: widget.userAuthKey,
+        );
+      } catch (_) {}
+    }
+
     await SuccessfulTransactionsStorage().updateSuccessfulTransactions({
       'transactionMemberName': "Withdrawal · ${_nameController.text.trim()} (${_country.countryName})",
       'transactionAmount': widget.amount.toStringAsFixed(2),
@@ -241,7 +280,7 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                         color: AppColors.surfaceAlt, borderRadius: BorderRadius.circular(AppRadii.pill)),
-                    child: Text("via Klasha",
+                    child: Text("Unavailable",
                         style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: AppColors.textMuted)),
                   ),
                 Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textMuted),
@@ -265,6 +304,36 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
           keyboardType: TextInputType.phone,
           style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
           decoration: _fieldDecoration("+256712345678"),
+        ),
+        const SizedBox(height: 10),
+        InkWell(
+          onTap: () => setState(() => _saveRecipient = !_saveRecipient),
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: Checkbox(
+                    value: _saveRecipient,
+                    onChanged: (v) => setState(() => _saveRecipient = v ?? true),
+                    activeColor: AppColors.primary,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    "Save this recipient for next time",
+                    style: TextStyle(fontSize: 13, color: AppColors.inkMuted, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
         const SizedBox(height: 18),
         OutlinedButton(

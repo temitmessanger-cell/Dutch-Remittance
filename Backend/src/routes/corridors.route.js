@@ -1,7 +1,7 @@
 const express = require('express');
 const {
+  EVERSEND_PAYOUT_COUNTRIES,
   AFRICAN_PAYOUT_COUNTRIES,
-  ABROAD_SENDING_COUNTRIES,
   MOMO_BENEFICIARY_COUNTRIES,
 } = require('../corridors');
 
@@ -14,8 +14,8 @@ const router = express.Router();
 // drift out of sync with what's actually enabled on Eversend.
 router.get('/', (req, res) => {
   res.json({
+    payoutCountries: EVERSEND_PAYOUT_COUNTRIES,
     africanPayoutCountries: AFRICAN_PAYOUT_COUNTRIES,
-    abroadSendingCountries: ABROAD_SENDING_COUNTRIES,
     momoBeneficiaryCountries: MOMO_BENEFICIARY_COUNTRIES,
   });
 });

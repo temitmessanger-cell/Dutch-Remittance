@@ -5,15 +5,16 @@ const { supabaseAdmin } = require('../supabaseClient');
 const { executePayout } = require('../paymentRouter');
 const {
   AFRICAN_PAYOUT_COUNTRIES,
-  ABROAD_SENDING_COUNTRIES,
+  EVERSEND_PAYOUT_COUNTRIES,
 } = require('../corridors');
 
 const router = express.Router();
 
 // POST /api/v1/payouts/send — the ONE "actually move the money" call
 // every Send Abroad tab and Withdrawal should use, paired with
-// POST /api/v1/rates/quotation above. Routes to Eversend or Klasha
-// automatically based on destinationCurrency.
+// POST /api/v1/rates/quotation above. Routes to Eversend if the
+// destination currency is one of its confirmed corridors, otherwise
+// returns a clear "not supported yet" error.
 router.post('/send', requireAppUser, async (req, res, next) => {
   try {
     const { destinationCurrency, currency, amount } = req.body || {};
@@ -59,7 +60,7 @@ router.get('/countries', async (req, res, next) => {
     res.json({
       eversend: data,
       confirmedAfricanCorridors: AFRICAN_PAYOUT_COUNTRIES,
-      confirmedAbroadSendingCountries: ABROAD_SENDING_COUNTRIES,
+      confirmedPayoutCountries: EVERSEND_PAYOUT_COUNTRIES,
     });
   } catch (err) {
     next(err);

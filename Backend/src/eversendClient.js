@@ -1,4 +1,24 @@
 const axios = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
+
+/**
+ * Eversend's dashboard IP Whitelist only accepts requests from a
+ * registered production IP. Railway has no static outbound IP, so
+ * OUTBOUND_PROXY_URL (the same static-IP proxy used for Klasha calls
+ * — see klashaClient.js) routes Eversend calls through that
+ * whitelisted address too. Left unset, requests go out directly.
+ */
+const proxyUrl = process.env.OUTBOUND_PROXY_URL;
+const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
+/**
+ * Eversend's /auth/token endpoint separately requires an `Origin`
+ * header matching the app's registered domain (confirmed live:
+ * omitting it returns 401 "Invalid request origin" even from a
+ * whitelisted IP). Reuses the first entry of ALLOWED_ORIGIN so there
+ * isn't a second place to keep the domain in sync.
+ */
+const eversendOrigin = (process.env.ALLOWED_ORIGIN || '').split(',')[0].trim() || undefined;
 
 /**
  * Thin wrapper around the Eversend REST API.
@@ -40,7 +60,10 @@ class EversendClient {
       headers: {
         clientId: this.clientId,
         clientSecret: this.clientSecret,
+        ...(eversendOrigin ? { Origin: eversendOrigin } : {}),
       },
+      httpsAgent: proxyAgent,
+      proxy: false,
     });
 
     const token = response.data?.token;
@@ -70,6 +93,8 @@ class EversendClient {
           'Content-Type': 'application/json',
         },
         timeout: 20000,
+        httpsAgent: proxyAgent,
+        proxy: false,
       });
       return response.data;
     } catch (err) {

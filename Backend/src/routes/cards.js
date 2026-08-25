@@ -29,6 +29,37 @@ const KYC_SKIP_FEE = 1.5;
 // card) charges a flat $2.10 retrieval fee — see POST /link below.
 const CARD_LINK_FEE = 2.1;
 
+// SECURITY: every route below that takes a :cardId param (view,
+// fund, withdraw, freeze, unfreeze, terminate) MUST confirm the card
+// actually belongs to req.user.id before calling Eversend or touching
+// Supabase — Eversend's own card API is scoped to the whole Dutch
+// Remit merchant account, not per end-user, so without this check any
+// logged-in user could act on any other user's card just by knowing
+// (or guessing/enumerating) its eversend_card_id. Returns the local
+// `cards` row on success, or null (after already sending a 403/404)
+// on failure — callers should `if (!card) return;`.
+async function requireOwnedCard(req, res, cardId) {
+  const { data: card, error } = await supabaseAdmin
+    .from('cards')
+    .select('id, eversend_card_id, user_id, status')
+    .eq('eversend_card_id', cardId)
+    .eq('user_id', req.user.id)
+    .maybeSingle();
+
+  if (error) {
+    res.status(500).json({ error: 'Could not verify card ownership.' });
+    return null;
+  }
+  if (!card) {
+    // Deliberately the same 404 whether the card doesn't exist or
+    // just isn't this user's — never confirm/deny another user's
+    // card ID exists.
+    res.status(404).json({ error: 'Card not found.' });
+    return null;
+  }
+  return card;
+}
+
 /**
  * Real Eversend virtual card issuance — confirmed against their
  * published API reference (https://eversend.readme.io/reference/create-a-card,
@@ -296,6 +327,8 @@ router.get('/mine', requireAppUser, async (req, res, next) => {
 
 router.get('/:cardId', requireAppUser, async (req, res, next) => {
   try {
+    const card = await requireOwnedCard(req, res, req.params.cardId);
+    if (!card) return;
     const data = await eversend.get(`/cards/${req.params.cardId}`);
     res.json(data);
   } catch (err) {
@@ -305,6 +338,8 @@ router.get('/:cardId', requireAppUser, async (req, res, next) => {
 
 router.get('/:cardId/transactions', requireAppUser, async (req, res, next) => {
   try {
+    const card = await requireOwnedCard(req, res, req.params.cardId);
+    if (!card) return;
     const data = await eversend.get(`/cards/${req.params.cardId}/transactions`);
     res.json(data);
   } catch (err) {
@@ -328,6 +363,8 @@ router.post('/fund', requireAppUser, async (req, res, next) => {
     if (!cardId || !amount || !currency) {
       return res.status(400).json({ error: 'cardId, amount and currency are required.' });
     }
+    const card = await requireOwnedCard(req, res, cardId);
+    if (!card) return;
     const data = await eversend.post('/cards/fund', { cardId, amount, currency });
 
     await supabaseAdmin.from('transactions').insert({
@@ -354,6 +391,8 @@ router.post('/withdraw', requireAppUser, async (req, res, next) => {
     if (!cardId || !amount || !currency) {
       return res.status(400).json({ error: 'cardId, amount and currency are required.' });
     }
+    const card = await requireOwnedCard(req, res, cardId);
+    if (!card) return;
     const data = await eversend.post('/cards/withdraw', { cardId, amount, currency });
 
     await supabaseAdmin.from('transactions').insert({
@@ -375,6 +414,8 @@ router.post('/withdraw', requireAppUser, async (req, res, next) => {
 
 router.post('/:cardId/freeze', requireAppUser, async (req, res, next) => {
   try {
+    const card = await requireOwnedCard(req, res, req.params.cardId);
+    if (!card) return;
     const data = await eversend.post(`/cards/${req.params.cardId}/freeze`, {});
     await supabaseAdmin.from('cards').update({ status: 'frozen' }).eq('eversend_card_id', req.params.cardId);
     res.json(data);
@@ -385,6 +426,8 @@ router.post('/:cardId/freeze', requireAppUser, async (req, res, next) => {
 
 router.post('/:cardId/unfreeze', requireAppUser, async (req, res, next) => {
   try {
+    const card = await requireOwnedCard(req, res, req.params.cardId);
+    if (!card) return;
     const data = await eversend.post(`/cards/${req.params.cardId}/unfreeze`, {});
     await supabaseAdmin.from('cards').update({ status: 'active' }).eq('eversend_card_id', req.params.cardId);
     res.json(data);
@@ -395,6 +438,8 @@ router.post('/:cardId/unfreeze', requireAppUser, async (req, res, next) => {
 
 router.post('/:cardId/terminate', requireAppUser, async (req, res, next) => {
   try {
+    const card = await requireOwnedCard(req, res, req.params.cardId);
+    if (!card) return;
     const data = await eversend.post(`/cards/${req.params.cardId}/terminate`, {});
     await supabaseAdmin.from('cards').update({ status: 'terminated' }).eq('eversend_card_id', req.params.cardId);
     res.json(data);

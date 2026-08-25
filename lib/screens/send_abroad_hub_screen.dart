@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
-import 'package:dutch_remit/screens/international_transfer_screen.dart' show GlobalTransferTabContent;
+import 'package:dutch_remit/screens/global_bank_transfer_screen.dart';
 import 'package:dutch_remit/screens/africa_corridor_screen.dart';
 import 'package:dutch_remit/screens/gifts_screen.dart';
 import 'package:dutch_remit/screens/quick_transfer_screen.dart';
@@ -100,7 +100,7 @@ class _SendAbroadHubScreenState extends State<SendAbroadHubScreen> {
   Widget _buildActiveSubTab() {
     switch (_activeSubTab) {
       case 0:
-        return GlobalTransferTabContent(user: widget.user);
+        return GlobalBankTransferScreen(user: widget.user, userAuthKey: widget.userAuthKey);
       case 1:
         return AfricaCorridorScreen(
           user: widget.user,
@@ -125,7 +125,7 @@ class _SendAbroadHubScreenState extends State<SendAbroadHubScreen> {
       case 5:
         return GiftsScreen(user: widget.user, userAuthKey: widget.userAuthKey);
       default:
-        return GlobalTransferTabContent(user: widget.user);
+        return GlobalBankTransferScreen(user: widget.user, userAuthKey: widget.userAuthKey);
     }
   }
 }

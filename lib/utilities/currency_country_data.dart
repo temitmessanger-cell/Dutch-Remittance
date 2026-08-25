@@ -174,3 +174,20 @@ CurrencyCountryInfo currencyInfoFor(String code) {
     orElse: () => kSupportedCurrencyCountries.first,
   );
 }
+
+/// The currencies Dutch Remit's Eversend wallet can actually source a
+/// send from right now — mirrors Backend/src/corridors.js's
+/// EVERSEND_SUPPORTED_CURRENCIES exactly (pulled from the same
+/// EVERSEND_PAYOUT_COUNTRIES list, confirmed live 2026-08-25).
+/// Eversend is the only provider currently wired into
+/// paymentRouter.js — Klasha is disabled for now — so this is the
+/// real, complete set. Use this (not kSupportedCurrencyCountries) for
+/// any "You send" / source-wallet picker; the full 100+ list is still
+/// fine for display-only or destination-side use where a payout isn't
+/// actually being executed against it.
+const List<String> kLiveEversendCurrencyCodes = [
+  'EUR', 'XOF', 'XAF', 'GBP', 'GHS', 'KES', 'NGN', 'RWF', 'TZS', 'UGX', 'USD', 'ZMW',
+];
+
+final List<CurrencyCountryInfo> kLiveEversendCurrencies =
+    kLiveEversendCurrencyCodes.map((code) => currencyInfoFor(code)).toList();
