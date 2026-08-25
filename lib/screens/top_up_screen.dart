@@ -119,7 +119,11 @@ class _TopUpScreenState extends State<TopUpScreen> {
   bool _isLoadingCryptoRate = false;
   Timer? _debounce;
 
-  bool get _isGuest => widget.user.isEmpty || widget.user['email'] == null;
+  bool get _isGuest =>
+      widget.user.isEmpty ||
+      widget.user['email'] == null ||
+      widget.userAuthKey == null ||
+      widget.userAuthKey!.trim().isEmpty;
 
   @override
   void initState() {

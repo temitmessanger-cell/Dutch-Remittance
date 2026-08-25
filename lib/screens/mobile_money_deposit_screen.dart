@@ -92,6 +92,11 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
   }
 
   Future<void> _requestOtp() async {
+    if (widget.userAuthKey == null || widget.userAuthKey!.trim().isEmpty) {
+      setState(() => _errorMessage = "Please log in before making a deposit.");
+      return;
+    }
+
     final phone = _phoneController.text.trim();
     if (phone.isEmpty || !phone.startsWith('+')) {
       setState(() => _errorMessage = "Enter the phone number in international format, e.g. +256712345678.");
