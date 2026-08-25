@@ -24,6 +24,18 @@ import 'package:dutch_remit/utilities/make_api_request.dart';
 
 import 'package:provider/provider.dart';
 
+Future<Box> _openUserDataBox() async {
+  try {
+    return await Hive.openBox(UserDataStorage.boxName);
+  } catch (_) {
+    // Recover from a stale Hive web object store created by an older build.
+    try {
+      await Hive.deleteBoxFromDisk(UserDataStorage.boxName);
+    } catch (_) {}
+    return Hive.openBox(UserDataStorage.boxName);
+  }
+}
+
 void main() async {
   WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
@@ -35,7 +47,7 @@ void main() async {
   await Future.wait([
     Hive.openBox(CardsStorage.boxName),
     Hive.openBox(ContactsStorage.boxName),
-    Hive.openBox(UserDataStorage.boxName),
+    _openUserDataBox(),
     Hive.openBox(LoginInfoStorage.boxName),
     Hive.openBox(SuccessfulTransactionsStorage.boxName),
     Hive.openBox(UserDeviceInfoStorage.boxName),
