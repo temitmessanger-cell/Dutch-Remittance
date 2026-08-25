@@ -28,29 +28,32 @@ const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
  *
  * The payout endpoint requires the JSON body to be 3DES-encrypted
  * first and sent as `{ "message": "<base64>" }` — see encrypt3DES
- * below, confirmed against Klasha's own documented algorithm sample.
- * One correction applied versus the original sample shared for this
- * project: the encryption key MUST be *exactly* 24 characters, not
- * "at least" 24 — a shorter or longer key silently produces
- * ciphertext Klasha's backend can't decrypt, which was the original
- * bug reported ("your encryption key string is not 24 characters
- * length").
+ * below, confirmed against Klasha's own documented algorithm sample
+ * and spec text (developers.klasha.com, "IMPORTANT" note on the
+ * encryption sample page): the encryption key must be *at least* 24
+ * UTF-8 characters — only the first 24 bytes are used as the 3DES
+ * key, and the first 8 of those as the IV. A key shorter than 24
+ * bytes is the actual bug ("your encryption key string is not 24
+ * characters length"); a longer key is fine and simply gets
+ * truncated to its first 24 bytes, matching Klasha's own algorithm.
  */
 
 /**
  * DES-EDE3-CBC (triple DES) encryption, matching Klasha's documented
- * algorithm exactly. `encryptionKey` must be exactly 24 characters —
- * Klasha issues this from the dashboard alongside your API keys.
+ * algorithm exactly. `encryptionKey` must be at least 24 UTF-8
+ * characters — only the first 24 bytes are used as the key (and the
+ * first 8 of those as the IV), per Klasha's own spec.
  */
 function encrypt3DES(payload, encryptionKey) {
-  if (!encryptionKey || encryptionKey.length !== 24) {
+  const keyBytes = encryptionKey ? Buffer.from(encryptionKey, 'utf8') : Buffer.alloc(0);
+  if (keyBytes.length < 24) {
     throw new Error(
-      `Klasha encryption key must be exactly 24 characters long (got ${encryptionKey ? encryptionKey.length : 0}). ` +
+      `Klasha encryption key must be at least 24 characters long (got ${keyBytes.length}). ` +
         'Find it on the Klasha dashboard under Settings -> Generate API Keys.'
     );
   }
 
-  const key = Buffer.from(encryptionKey, 'utf8');
+  const key = keyBytes.subarray(0, 24);
   const iv = key.subarray(0, 8);
 
   const cipher = crypto.createCipheriv('des-ede3-cbc', key, iv);
