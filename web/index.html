@@ -90,8 +90,8 @@
   <style>
     body {
       margin: 0;
-      background: #f6f8fb;
-      font-family: Arial, sans-serif;
+      background: #163172;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
 
     #seo-shell {
@@ -105,51 +105,86 @@
          DOM (Googlebot included, once it runs the page's JS) will
          ever find, since the live app renders to a <canvas> that has
          no extractable text at all. See index.html's closing script
-         for the corresponding first-frame handling. */
+         for the corresponding first-frame handling.
+
+         Styled to actually look like a branded loading screen (app
+         icon + spinner + "Loading your account…"), not a generic
+         fallback page — real users see this for a few seconds on
+         every first load while CanvasKit/main.dart.js download, so it
+         needs to read as "the app is starting" rather than "the app
+         is broken". The full marketing copy below the fold still
+         gives Google real crawlable text either way. */
       z-index: 0;
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 32px 20px;
-      background: linear-gradient(180deg, #f8fbff 0%, #edf4ff 100%);
-      color: #1d2a3a;
+      background: linear-gradient(180deg, #163172 0%, #0e2154 100%);
+      color: #ffffff;
       pointer-events: none;
     }
 
-    #seo-shell a { pointer-events: auto; }
+    #seo-shell a { pointer-events: auto; color: #a9c2ff; }
 
     #seo-shell-inner {
-      max-width: 760px;
+      max-width: 640px;
       width: 100%;
-      background: rgba(255, 255, 255, 0.82);
-      border: 1px solid rgba(18, 63, 110, 0.12);
-      border-radius: 18px;
-      box-shadow: 0 12px 32px rgba(20, 53, 92, 0.08);
-      padding: 32px 28px;
+      text-align: center;
+    }
+
+    #seo-shell-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+    }
+
+    #seo-shell-spinner {
+      width: 28px;
+      height: 28px;
+      margin: 28px auto 14px;
+      border-radius: 50%;
+      border: 3px solid rgba(255, 255, 255, 0.25);
+      border-top-color: #ffffff;
+      animation: seo-shell-spin 0.8s linear infinite;
+    }
+
+    @keyframes seo-shell-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #seo-shell-status {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.85);
+      margin: 0 0 36px;
     }
 
     #seo-shell h1 {
-      margin: 0 0 16px;
-      font-size: clamp(2rem, 5vw, 3rem);
-      line-height: 1.1;
-      letter-spacing: -0.04em;
+      margin: 0 0 14px;
+      font-size: clamp(1.6rem, 4vw, 2.2rem);
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      font-weight: 800;
     }
 
     #seo-shell p {
       margin: 0 0 12px;
-      font-size: 1.06rem;
+      font-size: 1rem;
       line-height: 1.7;
-      color: #2b3a4b;
+      color: rgba(255, 255, 255, 0.72);
     }
 
     #seo-shell ul {
-      margin: 16px 0 0;
-      padding-left: 20px;
-      font-size: 1rem;
-      line-height: 1.7;
-      color: #2b3a4b;
+      display: none;
     }
+
+    #seo-shell-links {
+      margin-top: 8px;
+      font-size: 0.85rem;
+    }
+    #seo-shell-links a { margin: 0 8px; }
 
     #splash {
       position: fixed;
@@ -165,6 +200,9 @@
 
   <div id="seo-shell" aria-label="Dutch Remit overview">
     <div id="seo-shell-inner">
+      <img id="seo-shell-icon" src="icons/Icon-192.png" alt="Dutch Remit" />
+      <div id="seo-shell-spinner" role="status" aria-label="Loading"></div>
+      <p id="seo-shell-status">Loading your account…</p>
       <h1>Dutch Remit</h1>
       <p>Dutch Remit is a cross-border money transfer and international remittance platform connecting African communities with global payment services.</p>
       <p>Users can send money, manage transfers, track payments, and access financial services through a secure digital experience designed for international transfers and account-based payments.</p>
@@ -173,7 +211,7 @@
         <li>Cross-border payments across multiple countries</li>
         <li>Secure remittance and transfer experience</li>
       </ul>
-      <p><a href="/about">About</a> &middot; <a href="/faq">FAQ</a> &middot; <a href="/terms">Terms of Use</a> &middot; <a href="/privacy">Privacy Policy</a></p>
+      <p id="seo-shell-links"><a href="/about">About</a> &middot; <a href="/faq">FAQ</a> &middot; <a href="/terms">Terms of Use</a> &middot; <a href="/privacy">Privacy Policy</a></p>
     </div>
   </div>
 
