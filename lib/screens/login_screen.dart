@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:dutch_remit/hadwin_components.dart';
-import 'package:dutch_remit/database/hadwin_user_device_info_storage.dart';
-import 'package:dutch_remit/screens/onboarding_screen.dart';
-import 'package:dutch_remit/components/main_app_screen/tabbed_layout_component.dart';
 import 'package:dutch_remit/utilities/legal_documents.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
 
@@ -56,27 +53,6 @@ class _LoginScreenState extends State<LoginScreen> {
       height: 36,
     );
 
-    Widget continueAsGuestContainer = Container(
-      margin: EdgeInsets.symmetric(vertical: 6),
-      width: double.infinity,
-      child: OutlinedButton(
-        onPressed: continueAsGuest,
-        style: OutlinedButton.styleFrom(
-          padding: EdgeInsets.symmetric(vertical: 16),
-          side: BorderSide(color: AppColors.primary, width: 1.6),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppRadii.md)),
-        ),
-        child: Text(
-          'Continue as Guest',
-          style: TextStyle(
-              fontSize: 15.5,
-              fontWeight: FontWeight.w700,
-              color: AppColors.primary),
-        ),
-      ),
-    );
-
     List<Widget> loginScreenContents = <Widget>[
       _spacing(64),
       Padding(
@@ -86,8 +62,6 @@ class _LoginScreenState extends State<LoginScreen> {
       _spacing(64),
       LoginFormComponent(),
       _spacing(16),
-      continueAsGuestContainer,
-      _spacing(14),
       helpInfoContainer,
       _spacing(10),
       signUpContainer
@@ -118,20 +92,6 @@ class _LoginScreenState extends State<LoginScreen> {
   void goToSignUpScreen() {
     Navigator.push(
         context, MaterialPageRoute(builder: (context) => SignUpScreen()));
-  }
-
-  void continueAsGuest() async {
-    // A guest who already saw onboarding once (e.g. they backed out and
-    // returned to this screen) shouldn't see it again — go straight to
-    // the main app, with no logged-in user data.
-    final alreadyOnboarded = await UserDeviceInfoStorage().wasUsedBefore;
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-            builder: (context) => alreadyOnboarded
-                ? TabbedLayoutComponent(userData: const {})
-                : OnboardingScreen()),
-        (route) => false);
   }
 
   SizedBox _spacing(double height) => SizedBox(
