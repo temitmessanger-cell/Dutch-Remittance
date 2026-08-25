@@ -1,5 +1,16 @@
 const axios = require('axios');
 const crypto = require('crypto');
+const { HttpsProxyAgent } = require('https-proxy-agent');
+
+/**
+ * When Klasha requires IP-whitelisted access and Railway's own plan
+ * has no static outbound IP, OUTBOUND_PROXY_URL points at a
+ * static-IP proxy (e.g. QuotaGuard Static IP) so calls to Klasha
+ * always leave from the same, whitelistable address. Left unset,
+ * requests go out directly as before — nothing else changes.
+ */
+const proxyUrl = process.env.OUTBOUND_PROXY_URL;
+const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
 
 /**
  * Klasha is the fallback for the currencies Eversend's 10 confirmed
@@ -72,10 +83,14 @@ class KlashaClient {
       throw new Error('KLASHA_PUBLIC_KEY / KLASHA_SECRET_KEY are not set. Add them to .env.');
     }
 
-    const response = await axios.post(`${this.baseUrl}/auth/account/v2/login`, {
-      publicKey: this.publicKey,
-      secretKey: this.secretKey,
-    });
+    const response = await axios.post(
+      `${this.baseUrl}/auth/account/v2/login`,
+      {
+        publicKey: this.publicKey,
+        secretKey: this.secretKey,
+      },
+      { httpsAgent: proxyAgent, proxy: false }
+    );
 
     const token = response.data?.token || response.data?.data?.token;
     if (!token) throw new Error('Klasha did not return a token. Check your credentials.');
@@ -101,6 +116,8 @@ class KlashaClient {
         params,
         headers,
         timeout: 20000,
+        httpsAgent: proxyAgent,
+        proxy: false,
       });
       return response.data;
     } catch (err) {
@@ -118,6 +135,8 @@ class KlashaClient {
       const response = await axios.post(`${this.baseUrl}${path}`, data, {
         headers,
         timeout: 20000,
+        httpsAgent: proxyAgent,
+        proxy: false,
       });
       return response.data;
     } catch (err) {
@@ -138,7 +157,7 @@ class KlashaClient {
       const response = await axios.post(
         `${this.baseUrl}${path}`,
         { message },
-        { headers, params: extraParams, timeout: 20000 }
+        { headers, params: extraParams, timeout: 20000, httpsAgent: proxyAgent, proxy: false }
       );
       return response.data;
     } catch (err) {
