@@ -111,9 +111,9 @@ const VIRTUAL_ACCOUNT_FEE_ADDITIONAL = 1.5;
 // two-hop flow).
 router.post('/virtual-account', requireAppUser, async (req, res, next) => {
   try {
-    const { currency, email } = req.body || {};
-    if (!currency || !email) {
-      return res.status(400).json({ error: 'currency and email are required.' });
+    const { currency, email, firstName, lastName } = req.body || {};
+    if (!currency || !email || !firstName || !lastName) {
+      return res.status(400).json({ error: 'currency, email, firstName and lastName are required.' });
     }
     const upperCurrency = currency.toUpperCase();
     if (!['NGN', 'GHS'].includes(upperCurrency)) {
@@ -136,7 +136,16 @@ router.post('/virtual-account', requireAppUser, async (req, res, next) => {
       .eq('user_id', req.user.id);
     const fee = count && count > 0 ? VIRTUAL_ACCOUNT_FEE_ADDITIONAL : VIRTUAL_ACCOUNT_FEE_FIRST;
 
-    const data = await klasha.postEncrypted('/wallet/virtual/v3/business/create/account', req.body);
+    // Send EXACTLY the four fields Klasha's decryptor expects, in a
+    // clean object — confirmed by the live successful VA test
+    // ({ firstName, lastName, currency, email }). Passing raw req.body
+    // risks extra/missing fields that break decryption.
+    const data = await klasha.postEncrypted('/wallet/virtual/v3/business/create/account', {
+      firstName,
+      lastName,
+      currency: upperCurrency,
+      email,
+    });
 
     const { data: virtualAccount, error: vaError } = await supabaseAdmin
       .from('virtual_accounts')

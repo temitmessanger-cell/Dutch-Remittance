@@ -101,14 +101,15 @@ class KlashaClient {
     const response = await axios.post(
       `${this.baseUrl}/auth/account/v2/login`,
       {
-        // Klasha's login takes ONLY email + password (confirmed against
-        // a live 200 response). Sending publicKey/secretKey in the body
-        // is unnecessary and was associated with the 401. The public
-        // key is used later as the x-auth-token HEADER, not in login.
-        email: this.loginEmail,
+        // Klasha's login field is `username` (NOT `email`), even though
+        // the value is an email address. Confirmed by live test:
+        // { username, password } returns a JWT; { email, password }
+        // returns 401 "empty login details". This was the root cause of
+        // the persistent login failure.
+        username: this.loginEmail,
         password: this.loginPassword,
       },
-      { httpsAgent: proxyAgent, proxy: false }
+      { headers: { 'Content-Type': 'application/json' }, httpsAgent: proxyAgent, proxy: false }
     );
 
     const token = response.data?.token || response.data?.data?.token;
