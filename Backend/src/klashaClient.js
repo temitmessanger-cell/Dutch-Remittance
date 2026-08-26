@@ -10,7 +10,19 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
  * requests go out directly as before — nothing else changes.
  */
 const proxyUrl = process.env.OUTBOUND_PROXY_URL;
-const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
+// IMPORTANT: build a FRESH proxy agent per request rather than reusing
+// one module-level agent for the life of the process. A single
+// long-lived HttpsProxyAgent to the Webshare proxy goes stale after the
+// container has been up a while — its pooled socket dies, and every
+// subsequent request through it fails with a gateway/502 error, even
+// though the credentials and IP are fine. (Confirmed on Railway: a
+// freshly-created agent returned 200 while the boot-time agent 502'd on
+// the very same call seconds later.) Creating the agent per call is
+// cheap and sidesteps the stale-socket problem entirely.
+function makeProxyAgent() {
+  return proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+}
 
 /**
  * Klasha is the fallback for the currencies Eversend's 10 confirmed
@@ -88,13 +100,17 @@ class KlashaClient {
     const now = Date.now();
     if (this._token && now < this._tokenExpiresAt) return this._token;
 
-    if (!this.publicKey || !this.secretKey) {
-      throw new Error('KLASHA_PUBLIC_KEY / KLASHA_SECRET_KEY are not set. Add them to .env.');
+    // Login and the authenticated headers only use publicKey (as the
+    // x-auth-token header) + the JWT from login. secretKey is NOT used
+    // here, so it must not gate token generation — requiring it caused
+    // a confusing 502 on Railway when only KLASHA_SECRET_KEY was absent
+    // even though auth would have worked fine.
+    if (!this.publicKey) {
+      throw new Error('KLASHA_PUBLIC_KEY is not set. Add it to your environment.');
     }
     if (!this.loginEmail || !this.loginPassword) {
       throw new Error(
-        'KLASHA_LOGIN_EMAIL / KLASHA_LOGIN_PASSWORD are not set. Klasha login requires them ' +
-          '(the API rejects key-only login with "Please provide a login email."). Add them to .env.'
+        'KLASHA_LOGIN_EMAIL / KLASHA_LOGIN_PASSWORD are not set. Klasha login requires them.'
       );
     }
 
@@ -109,7 +125,7 @@ class KlashaClient {
         username: this.loginEmail,
         password: this.loginPassword,
       },
-      { headers: { 'Content-Type': 'application/json' }, httpsAgent: proxyAgent, proxy: false }
+      { headers: { 'Content-Type': 'application/json' }, httpsAgent: makeProxyAgent(), proxy: false }
     );
 
     const token = response.data?.token || response.data?.data?.token;
@@ -136,7 +152,7 @@ class KlashaClient {
         params,
         headers,
         timeout: 20000,
-        httpsAgent: proxyAgent,
+        httpsAgent: makeProxyAgent(),
         proxy: false,
       });
       return response.data;
@@ -155,7 +171,7 @@ class KlashaClient {
       const response = await axios.post(`${this.baseUrl}${path}`, data, {
         headers,
         timeout: 20000,
-        httpsAgent: proxyAgent,
+        httpsAgent: makeProxyAgent(),
         proxy: false,
       });
       return response.data;
@@ -177,7 +193,7 @@ class KlashaClient {
       const response = await axios.post(
         `${this.baseUrl}${path}`,
         { message },
-        { headers, params: extraParams, timeout: 20000, httpsAgent: proxyAgent, proxy: false }
+        { headers, params: extraParams, timeout: 20000, httpsAgent: makeProxyAgent(), proxy: false }
       );
       return response.data;
     } catch (err) {

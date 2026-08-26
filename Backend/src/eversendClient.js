@@ -9,7 +9,16 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
  * whitelisted address too. Left unset, requests go out directly.
  */
 const proxyUrl = process.env.OUTBOUND_PROXY_URL;
-const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
+// See klashaClient.js for the full rationale: a single module-level
+// proxy agent reused for the whole process lifetime develops a stale
+// socket after the container has been up a while, causing intermittent
+// 502s on requests that are otherwise perfectly valid. Building a fresh
+// agent per request avoids this. Eversend hasn't hit it yet, but shares
+// the same pattern, so we harden it here too.
+function makeProxyAgent() {
+  return proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+}
 
 /**
  * Eversend's /auth/token endpoint separately requires an `Origin`
@@ -65,7 +74,7 @@ class EversendClient {
         clientSecret: this.clientSecret,
         ...(eversendOrigin ? { Origin: eversendOrigin } : {}),
       },
-      httpsAgent: proxyAgent,
+      httpsAgent: makeProxyAgent(),
       proxy: false,
     });
 
@@ -97,7 +106,7 @@ class EversendClient {
           ...(eversendOrigin ? { Origin: eversendOrigin } : {}),
         },
         timeout: 20000,
-        httpsAgent: proxyAgent,
+        httpsAgent: makeProxyAgent(),
         proxy: false,
       });
       return response.data;
