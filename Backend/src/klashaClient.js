@@ -67,12 +67,18 @@ function encrypt3DES(payload, encryptionKey) {
 }
 
 class KlashaClient {
-  constructor({ baseUrl, publicKey, secretKey, encryptionKey, businessId }) {
+  constructor({ baseUrl, publicKey, secretKey, encryptionKey, businessId, loginEmail, loginPassword }) {
     this.baseUrl = baseUrl || 'https://gate.klasapps.com';
     this.publicKey = publicKey;
     this.secretKey = secretKey;
     this.encryptionKey = encryptionKey;
     this.businessId = businessId;
+    // Klasha's /auth/account/v2/login requires an account email +
+    // password (confirmed by the live 401 "Please provide a login
+    // email." when only publicKey/secretKey were sent). These come
+    // from KLASHA_LOGIN_EMAIL / KLASHA_LOGIN_PASSWORD.
+    this.loginEmail = loginEmail;
+    this.loginPassword = loginPassword;
     this._token = null;
     this._tokenExpiresAt = 0;
     this._tokenTtlMs = 20 * 60 * 1000;
@@ -85,10 +91,18 @@ class KlashaClient {
     if (!this.publicKey || !this.secretKey) {
       throw new Error('KLASHA_PUBLIC_KEY / KLASHA_SECRET_KEY are not set. Add them to .env.');
     }
+    if (!this.loginEmail || !this.loginPassword) {
+      throw new Error(
+        'KLASHA_LOGIN_EMAIL / KLASHA_LOGIN_PASSWORD are not set. Klasha login requires them ' +
+          '(the API rejects key-only login with "Please provide a login email."). Add them to .env.'
+      );
+    }
 
     const response = await axios.post(
       `${this.baseUrl}/auth/account/v2/login`,
       {
+        email: this.loginEmail,
+        password: this.loginPassword,
         publicKey: this.publicKey,
         secretKey: this.secretKey,
       },
@@ -200,6 +214,8 @@ const klasha = new KlashaClient({
   secretKey: process.env.KLASHA_SECRET_KEY,
   encryptionKey: process.env.KLASHA_ENCRYPTION_KEY,
   businessId: process.env.KLASHA_BUSINESS_ID,
+  loginEmail: process.env.KLASHA_LOGIN_EMAIL,
+  loginPassword: process.env.KLASHA_LOGIN_PASSWORD,
 });
 
 module.exports = { KlashaClient, klasha, encrypt3DES };
