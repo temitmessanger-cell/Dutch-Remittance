@@ -101,10 +101,12 @@ class KlashaClient {
     const response = await axios.post(
       `${this.baseUrl}/auth/account/v2/login`,
       {
+        // Klasha's login takes ONLY email + password (confirmed against
+        // a live 200 response). Sending publicKey/secretKey in the body
+        // is unnecessary and was associated with the 401. The public
+        // key is used later as the x-auth-token HEADER, not in login.
         email: this.loginEmail,
         password: this.loginPassword,
-        publicKey: this.publicKey,
-        secretKey: this.secretKey,
       },
       { httpsAgent: proxyAgent, proxy: false }
     );
