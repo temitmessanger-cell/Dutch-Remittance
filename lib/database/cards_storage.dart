@@ -1,125 +1,95 @@
 import 'dart:math';
 
-import 'package:hive/hive.dart';
 import 'package:dutch_remit/utilities/make_api_request.dart';
 
-/// Persists the user's saved payment cards.
+/// The user's available payment cards.
 ///
-/// Backed by Hive (works identically on mobile, desktop, and web — unlike
-/// the previous dart:io File implementation, which silently failed on web
-/// since dart:io has no File support there). Public API is unchanged so
-/// every existing call site keeps working without modification.
+/// Previously Hive-backed (device-global, not per-user) — the same
+/// cross-user leak as the transactions and contacts stores. Cards are
+/// now read straight from the backend (GET /Dutch Remit/v1/available-cards),
+/// which is correctly scoped to the authenticated user, and nothing is
+/// cached on-device. Method signatures are unchanged so all call sites
+/// still compile.
+///
+/// To read cards the caller must have initialized this store with a
+/// valid auth key at least once in the session (see
+/// initializeAvailableCards) — the key is held only in memory for the
+/// lifetime of the object, never written to disk.
 class CardsStorage {
   static const String boxName = 'dutch_remit_available_cards';
-  static const String _dataKey = 'availableCards';
 
-  Future<Box> get _box async {
-    if (Hive.isBoxOpen(boxName)) {
-      return Hive.box(boxName);
-    }
-    return Hive.openBox(boxName);
-  }
+  // Singleton: previously each `CardsStorage()` was an independent Hive
+  // handle onto the same on-disk box, so they all saw the same data.
+  // Now that cards live in memory (backend-driven, no Hive), a shared
+  // instance preserves that "one source everywhere" behaviour — without
+  // it, a fresh CardsStorage() in one screen wouldn't see the cards
+  // another screen loaded. All the existing `CardsStorage()` call sites
+  // keep working unchanged and transparently share this instance.
+  static final CardsStorage _instance = CardsStorage._internal();
+  factory CardsStorage() => _instance;
+  CardsStorage._internal();
+
+  // Held in memory only, for the lifetime of this object. Not persisted.
+  String? _userAuthKey;
+  List<dynamic> _cards = <dynamic>[];
 
   Future<Map<String, dynamic>> get randomCard async {
-    var _availableCards = (await readAvailableCards())['availableCards'];
-
-    return _availableCards[Random().nextInt(_availableCards.length)];
+    final cards = (await readAvailableCards())['availableCards'] as List;
+    if (cards.isEmpty) return {};
+    return cards[Random().nextInt(cards.length)] as Map<String, dynamic>;
   }
 
+  /// Fetches the user's cards from the backend and holds them in memory
+  /// for this session. Returns false on error.
   Future<bool> initializeAvailableCards(String userAuthKey) async {
+    _userAuthKey = userAuthKey;
     try {
-      final contents = await readAvailableCards();
-      if (contents.containsKey('availableCards')) {
-        //* pre-existing cards loaded
-        return true;
-      } else {
-        try {
-          Map<String, dynamic> availableCards = await getData(
-              urlPath: "/Dutch Remit/v1/available-cards", authKey: userAuthKey);
-          if (availableCards.keys.join().toLowerCase().contains("error")) {
-            return false;
-          } else {
-            final box = await _box;
-            await box.put(_dataKey, availableCards['availableCards']);
-            //* the cards have been saved in app memory
-            return true;
-          }
-        } catch (er) {
-          return false;
-        }
+      final Map<String, dynamic> availableCards = await getData(
+          urlPath: "/Dutch Remit/v1/available-cards", authKey: userAuthKey);
+      if (availableCards.keys.join().toLowerCase().contains("error")) {
+        return false;
       }
-    } catch (e) {
+      _cards = List<dynamic>.from(availableCards['availableCards'] ?? <dynamic>[]);
+      return true;
+    } catch (_) {
       return false;
     }
   }
 
+  /// Returns the in-memory card list (populated by
+  /// initializeAvailableCards). If a refresh is needed, re-initialize
+  /// with the auth key. Falls back to a live fetch if we have a key but
+  /// no cards yet.
   Future<Map<String, dynamic>> readAvailableCards() async {
-    try {
-      final box = await _box;
-      final List<dynamic> rawCards =
-          List<dynamic>.from(box.get(_dataKey, defaultValue: <dynamic>[]));
-      final List<dynamic> cards = rawCards
-          .map((card) => Map<String, dynamic>.from(card as Map))
-          .toList();
-      return {'availableCards': cards};
-    } catch (e) {
-      return {"localDBError": "unable to parse data"};
+    if (_cards.isEmpty && _userAuthKey != null) {
+      await initializeAvailableCards(_userAuthKey!);
     }
+    return {'availableCards': List<dynamic>.from(_cards)};
   }
 
-  void updateAvailableCards(Map<String, dynamic> cardData) async {
-    final box = await _box;
-    final List<dynamic> cards =
-        List<dynamic>.from(box.get(_dataKey, defaultValue: <dynamic>[]));
-    cards.add(cardData);
-    await box.put(_dataKey, cards);
-    print("new card added");
+  /// In-memory only; the authoritative record is created server-side
+  /// when a card is actually issued.
+  void updateAvailableCards(Map<String, dynamic> cardData) {
+    _cards.add(cardData);
   }
 
   Future<bool> deleteCard(String cardNumber) async {
-    try {
-      final box = await _box;
-      final List<dynamic> rawCards =
-          List<dynamic>.from(box.get(_dataKey, defaultValue: <dynamic>[]));
-      final List<dynamic> cards = rawCards
-          .map((card) => Map<String, dynamic>.from(card as Map))
-          .toList();
-
-      List<dynamic> newCardsSet = cards
-          .where((card) =>
-              card['cardNumber'].replaceAll(' ', '') !=
-              cardNumber.replaceAll(' ', ''))
-          .toList();
-      await box.put(_dataKey, newCardsSet);
-      //* card has been deleted
-      return true;
-    } catch (e) {
-      return false;
-    }
+    _cards = _cards
+        .where((card) =>
+            (card['cardNumber']?.toString().replaceAll(' ', '') ?? '') !=
+            cardNumber.replaceAll(' ', ''))
+        .toList();
+    return true;
   }
 
   Future<bool> deleteFile() async {
-    try {
-      final box = await _box;
-      await box.delete(_dataKey);
-      //* THE LOCAL CARDS DATA HAS BEEN DELETED
-      return true;
-    } catch (e) {
-     //* THE LOCAL CARDS DATA HAS NOT BEEN DELETED
-      return false;
-    }
+    _cards = <dynamic>[];
+    _userAuthKey = null;
+    return true;
   }
 
   Future<bool> resetLocallySavedCards() async {
-    try {
-      final box = await _box;
-      await box.put(_dataKey, <dynamic>[]);
-      //* RESET CARDS DATA SUCCESSFUL
-      return true;
-    } catch (e) {
-    //* RESET CARDS DATA UNSUCCESSFUL
-      return false;
-    }
+    _cards = <dynamic>[];
+    return true;
   }
 }
-

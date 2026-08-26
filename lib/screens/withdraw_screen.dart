@@ -2,12 +2,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:dutch_remit/database/crypto_price_service.dart';
-import 'package:dutch_remit/database/successful_transactions_storage.dart';
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
-import 'package:dutch_remit/screens/top_up_screen.dart' show TopUpMethod, kTopUpMethods, DepositSpeed, kDepositSpeeds;
+import 'package:dutch_remit/screens/top_up_screen.dart' show TopUpMethod, kTopUpMethods;
 import 'package:dutch_remit/utilities/app_theme.dart';
-import 'package:dutch_remit/utilities/custom_date_grouping.dart';
 import 'package:dutch_remit/screens/mobile_money_withdrawal_screen.dart';
+import 'package:dutch_remit/screens/global_bank_transfer_screen.dart';
 
 /// Withdraw flow, matching the same card-based layout as Deposit: pick
 /// a destination, type or quick-pick an amount, and — for Crypto — see
@@ -26,7 +25,6 @@ class WithdrawScreen extends StatefulWidget {
 class _WithdrawScreenState extends State<WithdrawScreen> {
   final CryptoPriceService _cryptoService = CryptoPriceService();
   TopUpMethod _selectedMethod = kTopUpMethods.first;
-  DepositSpeed _selectedSpeed = kDepositSpeeds.first;
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _referenceController = TextEditingController();
 
@@ -145,111 +143,57 @@ class _WithdrawScreenState extends State<WithdrawScreen> {
       setState(() => _errorMessage = "Enter a valid amount.");
       return;
     }
-    final projectedFee = amount * _selectedSpeed.feePercent;
-    if (amount + projectedFee > currentBalance) {
+    if (amount > currentBalance) {
       setState(() => _errorMessage =
           "You only have \$${currentBalance.toStringAsFixed(2)} available.");
       return;
     }
 
-    // Mobile money / Orange money withdrawals need a destination
-    // country and recipient phone, so they go through a dedicated
-    // flow (quote -> confirm against the real backend) instead of the
-    // simulated instant debit below, which stays for methods that
-    // withdraw to something already on file (card, bank, crypto).
-    if (_selectedMethod.id == 'mobile_money' || _selectedMethod.id == 'orange_money') {
-      final result = await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => MobileMoneyWithdrawalScreen(
-            user: widget.user,
-            userAuthKey: widget.userAuthKey,
-            amount: amount,
-            withdrawalSpeed: _selectedSpeed.id,
+    setState(() => _errorMessage = null);
+
+    switch (_selectedMethod.id) {
+      case 'mobile_money':
+      case 'orange_money':
+        // Real payout flow: destination country + recipient phone,
+        // quoted and confirmed against the backend.
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => MobileMoneyWithdrawalScreen(
+              user: widget.user,
+              userAuthKey: widget.userAuthKey,
+              amount: amount,
+              withdrawalSpeed: 'instant',
+            ),
           ),
-        ),
-      );
-      if (result == true && mounted) Navigator.of(context).pop();
-      return;
+        );
+        if (result == true && mounted) Navigator.of(context).pop();
+        return;
+
+      case 'bank':
+        // Real bank payout — routed through the global bank transfer
+        // flow, which collects the destination bank details and sends a
+        // genuine Eversend payout.
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => GlobalBankTransferScreen(
+              user: widget.user,
+              userAuthKey: widget.userAuthKey,
+            ),
+          ),
+        );
+        if (result == true && mounted) Navigator.of(context).pop();
+        return;
+
+      case 'crypto':
+        // Crypto withdrawal isn't wired to a real payout rail yet
+        // (the crypto API currently supports deposit addresses only).
+        // Rather than fake a debit, tell the user plainly.
+        setState(() => _errorMessage =
+            "Crypto withdrawals aren't available yet. Use mobile money or bank instead.");
+        return;
     }
-
-    setState(() {
-      _isProcessing = true;
-      _errorMessage = null;
-    });
-
-    await Future.delayed(const Duration(milliseconds: 900));
-
-    final speedFee = amount * _selectedSpeed.feePercent;
-
-    final now = DateTime.now();
-    final receipt = {
-      'transactionMemberName': "Withdrawal to ${_selectedMethod.name}",
-      'transactionAmount': amount.toStringAsFixed(2),
-      'transactionType': 'debit',
-      'transactionDate': now.toIso8601String(),
-      'dateGroup': customGroup(now),
-      'withdrawalMethod': _selectedMethod.id,
-      'withdrawalSpeed': _selectedSpeed.id,
-      if (_selectedSpeed.feePercent > 0) 'speedFee': speedFee.toStringAsFixed(2),
-      if (_referenceController.text.trim().isNotEmpty)
-        'reference': _referenceController.text.trim(),
-      if (_selectedMethod.id == 'crypto' && _cryptoAmount != null)
-        'cryptoCoin': _cryptoCoin,
-      if (_selectedMethod.id == 'crypto' && _cryptoAmount != null)
-        'cryptoAmount': _cryptoAmount,
-    };
-
-    await SuccessfulTransactionsStorage().updateSuccessfulTransactions(receipt);
-
-    if (!mounted) return;
-
-    Provider.of<UserLoginStateProvider>(context, listen: false)
-        .updateBankBalance('debit', (amount + speedFee).toStringAsFixed(2));
-
-    setState(() => _isProcessing = false);
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.lg)),
-        title: Column(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(color: AppColors.successBg, shape: BoxShape.circle),
-              child: Icon(Icons.check_rounded, color: AppColors.success, size: 30),
-            ),
-            const SizedBox(height: 14),
-            Text("Withdrawal initiated",
-                style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink, fontSize: 17)),
-          ],
-        ),
-        content: Text(
-          "\$${amount.toStringAsFixed(2)} is on its way to your ${_selectedMethod.name}.",
-          textAlign: TextAlign.center,
-          style: TextStyle(color: AppColors.inkMuted),
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.sm)),
-            ),
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              Navigator.of(context).pop();
-            },
-            child: Text("Done"),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showCreateAccountPrompt() {
@@ -384,64 +328,6 @@ class _WithdrawScreenState extends State<WithdrawScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 22),
-            Text("SPEED",
-                style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textMuted,
-                    letterSpacing: 0.5)),
-            const SizedBox(height: 8),
-            Row(
-              children: kDepositSpeeds.map((speed) {
-                final bool isSelected = _selectedSpeed.id == speed.id;
-                return Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.only(right: speed == kDepositSpeeds.last ? 0 : 10),
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedSpeed = speed),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isSelected ? AppColors.primary.withOpacity(0.06) : Colors.white,
-                          borderRadius: BorderRadius.circular(AppRadii.md),
-                          border: Border.all(
-                              color: isSelected ? AppColors.primary : AppColors.border,
-                              width: isSelected ? 1.6 : 1),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                if (speed.id == 'instant')
-                                  Icon(Icons.bolt_rounded, size: 15, color: AppColors.primary),
-                                if (speed.id == 'instant') const SizedBox(width: 4),
-                                Text(speed.label,
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.w700, color: AppColors.ink, fontSize: 13.5)),
-                              ],
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                                speed.id == 'instant'
-                                    ? 'Withdraws in seconds'
-                                    : speed.detail,
-                                style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            if (_selectedSpeed.feePercent > 0) ...[
-              const SizedBox(height: 8),
-              Text(
-                  "Instant withdrawal fee: ${(_selectedSpeed.feePercent * 100).toStringAsFixed(1)}%",
-                  style: TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
-            ],
             const SizedBox(height: 22),
             Text("REFERENCE (OPTIONAL)",
                 style: TextStyle(

@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:dutch_remit/dutchremit_components.dart';
+import 'package:dutch_remit/hadwin_components.dart';
+import 'package:dutch_remit/screens/qr_code_scanner_screen.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
 
 /// "Send" tab — lets the user pick a contact or business to pay or
@@ -111,7 +112,10 @@ class _SendMoneyTabScreenState extends State<SendMoneyTabScreen> {
         foregroundColor: AppColors.ink,
         actions: [
           IconButton(
-              onPressed: () {},
+              onPressed: () {
+                Navigator.push(context,
+                    SlideRightRoute(page: const QRCodeScannerScreen()));
+              },
               icon: Icon(FluentIcons.qr_code_28_regular, color: AppColors.ink)),
         ],
       ),

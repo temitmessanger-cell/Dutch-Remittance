@@ -1,15 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
 
-/// A small pill showing one of the flat-fee tiers Dutch Remit charges,
-/// e.g. "$0.80", "$1-2", "$10".
+/// Shows the real fee for this transfer, sourced from the backend's
+/// live quotation response (feeBreakdown.totalFee) — never a
+/// hardcoded/dummy number. If no quote has been fetched yet or the
+/// amount is empty, this collapses to a neutral "Fees shown at
+/// quote" placeholder rather than inventing a figure.
+///
+/// This used to render a hardcoded ["\$0.80", "\$1 - \$2", "\$10"]
+/// teaser tier list next to every send screen — real users saw those
+/// numbers alongside the actual fee returned from the backend, which
+/// almost never matched. Replaced with the real quote so the two
+/// numbers can never disagree.
 class FeeTiersRow extends StatelessWidget {
-  const FeeTiersRow({Key? key}) : super(key: key);
+  final double? fee;
+  final String? currencyCode;
 
-  static const List<String> _tiers = ["\$0.80", "\$1 - \$2", "\$10"];
+  const FeeTiersRow({Key? key, this.fee, this.currencyCode}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final hasRealFee = fee != null && fee! >= 0 && currencyCode != null;
+    final displayFee = hasRealFee
+        ? "${fee!.toStringAsFixed(2)} $currencyCode"
+        : "Shown at quote";
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -21,23 +36,20 @@ class FeeTiersRow extends StatelessWidget {
         children: [
           Icon(Icons.payments_outlined, size: 16, color: AppColors.primary),
           const SizedBox(width: 10),
-          Text("Transfer fees",
+          Text("Transfer fee",
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink)),
           const Spacer(),
-          Wrap(
-            spacing: 6,
-            children: _tiers
-                .map((t) => Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceAlt,
-                        borderRadius: BorderRadius.circular(AppRadii.pill),
-                      ),
-                      child: Text(t,
-                          style: TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary)),
-                    ))
-                .toList(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: hasRealFee ? AppColors.successBg : AppColors.surfaceAlt,
+              borderRadius: BorderRadius.circular(AppRadii.pill),
+            ),
+            child: Text(displayFee,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: hasRealFee ? AppColors.success : AppColors.inkMuted)),
           ),
         ],
       ),

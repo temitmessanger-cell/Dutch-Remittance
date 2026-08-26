@@ -466,9 +466,13 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   // ---------------------------------------------------------------
   Widget _buildDiasporaLayout() {
     final sourceInfo = currencyInfoFor(_sourceCurrency);
-    final savings = (_amountValue != null && _exchangeRate != null)
-        ? (_amountValue! * _exchangeRate! * 0.16)
-        : null;
+    // Note: an earlier version of this screen computed a "You save X
+    // vs a typical bank transfer" line as receive_amount * 0.16 — a
+    // hardcoded 16% figure with no basis in any real bank benchmark.
+    // Removed: showing a fabricated savings number to real users is
+    // misleading. If/when we have a defensible source (e.g. a live
+    // comparison against a specific named provider), we can compute
+    // and show it — until then, no number is better than a fake one.
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -639,35 +643,10 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                   ),
                 ],
               ),
-              if (savings != null) ...[
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                      color: AppColors.successBg, borderRadius: BorderRadius.circular(AppRadii.md)),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.savings_outlined, size: 17, color: AppColors.success),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: RichText(
-                          text: TextSpan(
-                            style: TextStyle(fontSize: 13.5, color: AppColors.success, height: 1.35),
-                            children: [
-                              TextSpan(text: "You save "),
-                              TextSpan(
-                                  text: "${_formatWhole(savings)} ${_destination.currencyCode} ",
-                                  style: TextStyle(fontWeight: FontWeight.w800)),
-                              TextSpan(text: "vs a typical bank transfer"),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              // Removed: "You save X vs a typical bank transfer" —
+              // the amount here was computed as receive * 0.16, a
+              // fabricated 16% figure not tied to any real
+              // benchmark. See _buildDiasporaLayout above.
             ],
           ),
         ),
@@ -717,12 +696,12 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
               ),
             ),
             Text(
-                _payoutMethod == 0 ? "median ~1.1 min" : "median ~40 min",
+                _payoutMethod == 0 ? "Mobile money" : "Bank transfer",
                 style: TextStyle(fontSize: 11.5, color: AppColors.textMuted, fontFamily: 'monospace')),
           ],
         ),
         const SizedBox(height: 18),
-        const FeeTiersRow(),
+        FeeTiersRow(fee: _platformFee, currencyCode: _sourceCurrency),
         const DeliveryTimeRow(range: "Instant · 1 min to 1 day"),
         const SizedBox(height: 14),
         Container(
@@ -1009,7 +988,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
         const SizedBox(height: 10),
         _buildSaveRecipientToggle(),
         const SizedBox(height: 14),
-        const FeeTiersRow(),
+        FeeTiersRow(fee: _platformFee, currencyCode: _sourceCurrency),
         const DeliveryTimeRow(range: "Instant · 1 min to 1 day"),
         if (_errorMessage != null) ...[
           const SizedBox(height: 12),

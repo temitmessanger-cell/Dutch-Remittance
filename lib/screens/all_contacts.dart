@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:dutch_remit/dutchremit_components.dart';
+import 'package:dutch_remit/hadwin_components.dart';
 import 'package:dutch_remit/screens/my_qr_code_screen.dart';
 import 'package:dutch_remit/screens/enter_code_manually_screen.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';

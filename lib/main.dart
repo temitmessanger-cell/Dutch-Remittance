@@ -9,7 +9,6 @@ import 'package:dutch_remit/components/main_app_screen/local_splash_screen_compo
 
 import 'package:dutch_remit/screens/onboarding_screen.dart';
 import 'package:dutch_remit/database/cards_storage.dart';
-import 'package:dutch_remit/database/contacts_storage.dart';
 import 'package:dutch_remit/database/currency_conversion_service.dart';
 import 'package:dutch_remit/database/login_info_storage.dart';
 import 'package:dutch_remit/database/hadwin_user_device_info_storage.dart';
@@ -40,16 +39,32 @@ void main() async {
   WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
-  // Hive works identically across mobile, desktop, and web (unlike the
-  // dart:io File-based storage this app used before), so every box is
-  // opened up front, here, exactly once.
   await Hive.initFlutter();
+
+  // One-time cleanup of the device-global boxes that used to cache
+  // per-user business data (transactions, contacts, cards). These
+  // leaked one user's data into the next user's session on a shared
+  // browser/device. Those stores are now backend-only (see their
+  // storage classes), so we actively DELETE any stale box left on a
+  // returning user's device here — this is what clears the "phantom"
+  // transactions/contacts/cards a user reported seeing that weren't
+  // theirs. Wrapped so a missing box is never fatal.
+  for (final staleBox in <String>[
+    'dutch_remit_successful_transactions',
+    'dutch_remit_local_contacts',
+    'dutch_remit_available_cards',
+  ]) {
+    try {
+      await Hive.deleteBoxFromDisk(staleBox);
+    } catch (_) {}
+  }
+
+  // Remaining boxes are legitimately device-local (login session,
+  // device info, FX cache, product-tour-seen flag) and are opened
+  // once here. None of them hold another user's business data.
   await Future.wait([
-    Hive.openBox(CardsStorage.boxName),
-    Hive.openBox(ContactsStorage.boxName),
     _openUserDataBox(),
     Hive.openBox(LoginInfoStorage.boxName),
-    Hive.openBox(SuccessfulTransactionsStorage.boxName),
     Hive.openBox(UserDeviceInfoStorage.boxName),
     Hive.openBox(CurrencyConversionService.boxName),
     Hive.openBox(ProductTourStorage.boxName),

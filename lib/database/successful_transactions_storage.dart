@@ -1,99 +1,41 @@
-import 'package:hive/hive.dart';
-
-/// Persists transactions that were completed while offline / before the
-/// server confirmed them, so they can be queued and reconciled later.
+/// Local transaction cache — INTENTIONALLY A NO-OP.
 ///
-/// Backed by Hive — works on mobile, desktop, and web (the previous
-/// dart:io File implementation had no web support). Public API unchanged.
+/// This used to be backed by Hive (a device-global browser/disk store).
+/// That caused a serious bug: transactions written by one logged-in
+/// user persisted on the device and then showed up for the NEXT user
+/// who logged in on the same browser, because the Hive box is not
+/// scoped per user. Users reported "seeing transaction history that
+/// doesn't belong to me" — this was the cause.
+///
+/// The backend (GET /Dutch Remit/v1/all-transactions and
+/// /api/v1/transactions) is already the single, correctly per-user
+/// scoped source of truth (every row is filtered by user_id server
+/// side). So the local cache is not just unnecessary, it's harmful.
+///
+/// Rather than delete the class (which is referenced in ~20 screens),
+/// every method is kept with its original signature but does nothing
+/// and returns empty, so the whole app still compiles while no
+/// cross-user data can ever be stored or read locally again. New
+/// transactions are persisted server-side at the moment they happen;
+/// the UI reads them back from the backend.
 class SuccessfulTransactionsStorage {
   static const String boxName = 'dutch_remit_successful_transactions';
-  static const String _dataKey = 'transactions';
 
-  Future<Box> get _box async {
-    if (Hive.isBoxOpen(boxName)) {
-      return Hive.box(boxName);
-    }
-    return Hive.openBox(boxName);
-  }
+  Future<bool> initializeSuccessfulTransactions() async => true;
 
-  /// Recursively converts Hive's loosely-typed maps/lists into the
-  /// strictly-typed Map<String, dynamic> / List<dynamic> shape the rest
-  /// of the app expects (the same shape jsonDecode used to produce).
-  dynamic _normalize(dynamic value) {
-    if (value is Map) {
-      return value.map((k, v) => MapEntry(k.toString(), _normalize(v)));
-    } else if (value is List) {
-      return value.map(_normalize).toList();
-    }
-    return value;
-  }
-
-  Future<bool> initializeSuccessfulTransactions() async {
-    try {
-      final contents = await getSuccessfulTransactions();
-      if (contents.containsKey('transactions')) {
-       //* pre-existing transactions loaded
-        return true;
-      } else {
-        final box = await _box;
-        await box.put(_dataKey, <dynamic>[]);
-        //* the transactions store has been initialized
-        return true;
-      }
-    } catch (e) {
-      return false;
-    }
-  }
-
+  /// Always returns an empty (but valid) transaction list. Callers
+  /// merge this with the backend response, so returning empty simply
+  /// means "the backend is the only source", which is exactly right.
   Future<Map<String, dynamic>> getSuccessfulTransactions() async {
-    try {
-      final box = await _box;
-      final data = box.get(_dataKey);
-      if (data == null) {
-        return {"localDBError": "unable to parse data"};
-      }
-      return {"transactions": List<dynamic>.from(_normalize(data))};
-    } catch (e) {
-      return {"localDBError": "unable to parse data"};
-    }
+    return {"transactions": <dynamic>[]};
   }
 
+  /// No-op: transactions are persisted server-side when they occur.
   Future<bool> updateSuccessfulTransactions(
-      Map<String, dynamic> transactionReceipt) async {
-    try {
-      final box = await _box;
-      final List<dynamic> transactions =
-          List<dynamic>.from(box.get(_dataKey, defaultValue: <dynamic>[]));
-      transactions.add(transactionReceipt);
-      await box.put(_dataKey, transactions);
-      //* transactions updated
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
+          Map<String, dynamic> transactionReceipt) async =>
+      true;
 
-  Future<bool> deleteFile() async {
-    try {
-      final box = await _box;
-      await box.delete(_dataKey);
-      //* THE LOCAL TRANSACTIONS DATA HAS BEEN DELETED
-      return true;
-    } catch (e) {
-      //* THE LOCAL TRANSACTIONS DATA HAS NOT BEEN DELETED
-      return false;
-    }
-  }
+  Future<bool> deleteFile() async => true;
 
-  Future<bool> resetLocallySavedTransactions() async {
-    try {
-      final box = await _box;
-      await box.put(_dataKey, <dynamic>[]);
-     //* RESET TRANSACTIONS DATA SUCCESSFUL
-      return true;
-    } catch (e) {
-      //* //* RESET TRANSACTIONS DATA UNSUCCESSFUL
-      return false;
-    }
-  }
+  Future<bool> resetLocallySavedTransactions() async => true;
 }

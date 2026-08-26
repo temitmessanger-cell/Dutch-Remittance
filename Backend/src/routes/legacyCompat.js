@@ -99,7 +99,19 @@ router.post('/execute-transaction', requireAppUser, async (req, res) => {
     return res.json({ error: 'Could not record the transaction.' });
   }
 
-  res.json({ status: 'success', transaction: data, transactionReceipt: receipt });
+  // The processing screen (transaction_processing_screen.dart) reads
+  // `transactionStatus == "successful"` and a `transactionReceipt` that
+  // carries a `transactionID`. Return exactly that shape so the success
+  // animation and unread-badge logic actually fire (previously the
+  // backend returned { status: 'success' }, which never matched and
+  // left the success branch dead).
+  const enrichedReceipt = { ...receipt, transactionID: data.id };
+  res.json({
+    transactionStatus: 'successful',
+    status: 'success',
+    transaction: data,
+    transactionReceipt: enrichedReceipt,
+  });
 });
 
 module.exports = router;

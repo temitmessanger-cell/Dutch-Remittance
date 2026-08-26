@@ -521,7 +521,7 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: _statCard("It costs", "from 0.49%", "One fee, shown upfront"),
+              child: _statCard("It costs", "See quote", "Fee shown before you send"),
             ),
             const SizedBox(width: 10),
             Expanded(

@@ -1,11 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:dutch_remit/database/crypto_price_service.dart';
-import 'package:dutch_remit/database/successful_transactions_storage.dart';
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
-import 'package:dutch_remit/utilities/custom_date_grouping.dart';
 import 'package:dutch_remit/utilities/slide_right_route.dart';
 import 'package:dutch_remit/screens/mobile_money_deposit_screen.dart';
 
@@ -51,48 +48,17 @@ const List<TopUpMethod> kTopUpMethods = [
     name: 'Crypto',
     icon: Icons.currency_bitcoin_rounded,
     color: Color(0xFFF7931A),
-    description: 'Deposit using BTC, ETH, or USDT',
-  ),
-  TopUpMethod(
-    id: 'other',
-    name: 'Other',
-    icon: Icons.more_horiz_rounded,
-    color: Color(0xFF6B7280),
-    description: 'Card, voucher, or another method',
+    description: 'Deposit using USDT, BTC, or ETH',
   ),
 ];
 
-const List<double> kQuickAmounts = [1000, 5000, 10000];
-
-class DepositSpeed {
-  final String id;
-  final String label;
-  final String detail;
-  final double feePercent;
-  const DepositSpeed(
-      {required this.id, required this.label, required this.detail, required this.feePercent});
-}
-
-const List<DepositSpeed> kDepositSpeeds = [
-  DepositSpeed(
-      id: 'instant',
-      label: 'Instant',
-      detail: 'Funds land in seconds',
-      feePercent: 0.015),
-  DepositSpeed(
-      id: 'standard',
-      label: 'Standard',
-      detail: '1–3 business days · free',
-      feePercent: 0),
-];
-
-/// Deposit flow, laid out like a real on-ramp screen: pick a payment
-/// method, type or quick-pick an amount, and — only when the method is
-/// Crypto — see a genuine live conversion sourced from CoinGecko's
-/// public price feed (not an invented number). On confirm, this really
-/// increases the balance via UserLoginStateProvider (the same provider
-/// Home's balance already reads from) and records a real local
-/// transaction.
+/// Deposit flow. Pick a real payment method, enter an amount, and the
+/// screen routes to that method's genuine on-ramp:
+///   - Mobile Money / Orange Money -> Eversend collections (OTP + charge)
+///   - Bank -> a real Klasha virtual account the user transfers into
+///   - Crypto -> a real per-user deposit address
+/// There is no fake instant-credit path and no "deposit speed" choice;
+/// funds are credited only when the real rail confirms them.
 class TopUpScreen extends StatefulWidget {
   final Map<String, dynamic> user;
   final String? userAuthKey;
@@ -105,9 +71,7 @@ class TopUpScreen extends StatefulWidget {
 class _TopUpScreenState extends State<TopUpScreen> {
   final CryptoPriceService _cryptoService = CryptoPriceService();
   TopUpMethod _selectedMethod = kTopUpMethods.first;
-  DepositSpeed _selectedSpeed = kDepositSpeeds.first;
-  final TextEditingController _amountController =
-      TextEditingController(text: '1000');
+  final TextEditingController _amountController = TextEditingController();
   final TextEditingController _referenceController = TextEditingController();
 
   bool _isProcessing = false;
@@ -237,106 +201,226 @@ class _TopUpScreenState extends State<TopUpScreen> {
       return;
     }
 
-    // Mobile money / Orange money deposits go through the real
-    // Eversend collections flow (phone number, OTP, confirm) instead
-    // of the simulated instant-credit path below, which stays for
-    // methods that don't need a phone-verified charge (card, bank,
-    // crypto).
-    if (_selectedMethod.id == 'mobile_money' || _selectedMethod.id == 'orange_money') {
-      final result = await Navigator.push(
-        context,
-        SlideRightRoute(
-          page: MobileMoneyDepositScreen(
-            user: widget.user,
-            userAuthKey: widget.userAuthKey,
-            amount: amount,
-            depositSpeed: _selectedSpeed.id,
+    setState(() => _errorMessage = null);
+
+    switch (_selectedMethod.id) {
+      case 'mobile_money':
+      case 'orange_money':
+        // Real Eversend collections flow (phone, OTP, confirm).
+        final result = await Navigator.push(
+          context,
+          SlideRightRoute(
+            page: MobileMoneyDepositScreen(
+              user: widget.user,
+              userAuthKey: widget.userAuthKey,
+              amount: amount,
+              depositSpeed: 'instant',
+            ),
           ),
+        );
+        if (result == true && mounted) Navigator.of(context).pop();
+        return;
+
+      case 'bank':
+        await _startBankDeposit();
+        return;
+
+      case 'crypto':
+        await _startCryptoDeposit();
+        return;
+    }
+  }
+
+  /// Bank deposit: create (or reuse) a real Klasha virtual account in
+  /// NGN or GHS, then show the user the account details to transfer
+  /// into. Funds are credited when Klasha confirms the incoming
+  /// transfer via webhook — never faked here.
+  Future<void> _startBankDeposit() async {
+    // Klasha virtual accounts only exist for NGN and GHS.
+    final currency = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.lg))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            Text("Choose account currency",
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.ink)),
+            const SizedBox(height: 4),
+            Text("Bank deposits are available in Naira and Cedi.",
+                style: TextStyle(fontSize: 13, color: AppColors.inkMuted)),
+            const SizedBox(height: 12),
+            for (final c in const [
+              ['NGN', 'Nigerian Naira', '🇳🇬'],
+              ['GHS', 'Ghanaian Cedi', '🇬🇭'],
+            ])
+              ListTile(
+                leading: Text(c[2], style: const TextStyle(fontSize: 22)),
+                title: Text(c[1],
+                    style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink)),
+                trailing: Text(c[0],
+                    style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary)),
+                onTap: () => Navigator.of(ctx).pop(c[0]),
+              ),
+            const SizedBox(height: 12),
+          ],
         ),
+      ),
+    );
+    if (currency == null || !mounted) return;
+
+    setState(() => _isProcessing = true);
+
+    // Try to create a virtual account; if the user already has one for
+    // this currency, fall back to fetching it.
+    Map<String, dynamic> result = await sendData(
+      urlPath: "/api/v1/klasha/virtual-account",
+      data: {
+        "currency": currency,
+        "email": widget.user['email'],
+        "firstName": widget.user['first_name'] ?? widget.user['fullname']?.toString().split(' ').first ?? 'Dutch',
+        "lastName": widget.user['last_name'] ?? 'Remit',
+      },
+      authKey: widget.userAuthKey,
+    );
+
+    // 409 = already exists → fetch the existing one.
+    if ((result['error']?.toString().toLowerCase().contains('already') ?? false)) {
+      result = await getData(
+        urlPath: "/api/v1/klasha/virtual-account/${widget.user['email']}",
+        authKey: widget.userAuthKey!,
       );
-      if (result == true && mounted) Navigator.of(context).pop();
+    }
+
+    if (!mounted) return;
+    setState(() => _isProcessing = false);
+
+    if (result['error'] != null || result['apiRequestError'] != null) {
+      setState(() => _errorMessage =
+          result['error']?.toString() ?? result['apiRequestError'].toString());
       return;
     }
 
-    setState(() {
-      _isProcessing = true;
-      _errorMessage = null;
-    });
+    final va = (result['virtualAccount'] ?? result['data'] ?? result) as Map;
+    _showDepositDetailsSheet(
+      title: "Transfer to this account",
+      subtitle:
+          "Send $currency to the account below from your bank. Your Dutch Remit balance updates automatically once the transfer is received.",
+      rows: {
+        'Account number': va['account_number']?.toString() ?? va['accountNumber']?.toString() ?? '—',
+        'Account name': va['account_name']?.toString() ?? va['accountName']?.toString() ?? '—',
+        'Bank': va['bank_name']?.toString() ?? va['bankName']?.toString() ?? '—',
+        'Currency': currency,
+      },
+    );
+  }
 
-    // A brief, honest processing pause — not a fake countdown pretending
-    // to "verify" anything, just enough for the state change to feel
-    // deliberate rather than instantaneous and jarring.
-    await Future.delayed(const Duration(milliseconds: 900));
+  /// Crypto deposit: fetch (or create) a real per-user deposit address
+  /// for the chosen coin and show it. Funds credit when the chain
+  /// transaction confirms via webhook — never faked here.
+  Future<void> _startCryptoDeposit() async {
+    setState(() => _isProcessing = true);
 
-    final speedFee = amount * _selectedSpeed.feePercent;
-    final creditedAmount = amount - speedFee;
-
-    final now = DateTime.now();
-    final receipt = {
-      'transactionMemberName': "Top up via ${_selectedMethod.name}",
-      'transactionAmount': creditedAmount.toStringAsFixed(2),
-      'transactionType': 'credit',
-      'transactionDate': now.toIso8601String(),
-      'dateGroup': customGroup(now),
-      'topUpMethod': _selectedMethod.id,
-      'depositSpeed': _selectedSpeed.id,
-      if (_selectedSpeed.feePercent > 0) 'speedFee': speedFee.toStringAsFixed(2),
-      if (_referenceController.text.trim().isNotEmpty)
-        'reference': _referenceController.text.trim(),
-      if (_selectedMethod.id == 'crypto' && _cryptoAmount != null)
-        'cryptoCoin': _cryptoCoin,
-      if (_selectedMethod.id == 'crypto' && _cryptoAmount != null)
-        'cryptoAmount': _cryptoAmount,
-    };
-
-    await SuccessfulTransactionsStorage().updateSuccessfulTransactions(receipt);
+    Map<String, dynamic> result = await sendData(
+      urlPath: "/api/v1/crypto/addresses",
+      data: {"coin": _cryptoCoin},
+      authKey: widget.userAuthKey,
+    );
 
     if (!mounted) return;
-
-    Provider.of<UserLoginStateProvider>(context, listen: false)
-        .updateBankBalance('credit', creditedAmount.toStringAsFixed(2));
-
     setState(() => _isProcessing = false);
 
-    showDialog(
+    if (result['error'] != null || result['apiRequestError'] != null) {
+      setState(() => _errorMessage =
+          result['error']?.toString() ?? result['apiRequestError'].toString());
+      return;
+    }
+
+    if (result['address'] == null) {
+      setState(() => _errorMessage =
+          "Crypto deposits for $_cryptoCoin aren't available on your account yet. Try another method.");
+      return;
+    }
+
+    final addr = result;
+    _showDepositDetailsSheet(
+      title: "Your $_cryptoCoin deposit address",
+      subtitle:
+          "Send only $_cryptoCoin to this address. Sending any other asset may result in permanent loss. Your balance updates once the network confirms your deposit.",
+      rows: {
+        'Coin': _cryptoCoin,
+        'Network': addr['network']?.toString() ?? _cryptoCoin,
+        'Address': addr['address']?.toString() ?? '—',
+      },
+    );
+  }
+
+  void _showDepositDetailsSheet({
+    required String title,
+    required String subtitle,
+    required Map<String, String> rows,
+  }) {
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.lg)),
-        title: Column(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(color: AppColors.successBg, shape: BoxShape.circle),
-              child: Icon(Icons.check_rounded, color: AppColors.success, size: 30),
-            ),
-            const SizedBox(height: 14),
-            Text("Deposit successful",
-                style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink, fontSize: 17)),
-          ],
-        ),
-        content: Text(
-          "\$${amount.toStringAsFixed(2)} has been added to your balance via ${_selectedMethod.name}.",
-          textAlign: TextAlign.center,
-          style: TextStyle(color: AppColors.inkMuted),
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.sm)),
-            ),
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              Navigator.of(context).pop();
-            },
-            child: Text("Done"),
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.lg))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppColors.ink)),
+              const SizedBox(height: 6),
+              Text(subtitle,
+                  style: TextStyle(fontSize: 13, height: 1.45, color: AppColors.inkMuted)),
+              const SizedBox(height: 18),
+              ...rows.entries.map((e) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 120,
+                          child: Text(e.key,
+                              style: TextStyle(fontSize: 13, color: AppColors.inkMuted)),
+                        ),
+                        Expanded(
+                          child: SelectableText(e.value,
+                              style: TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                        ),
+                      ],
+                    ),
+                  )),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    if (mounted) Navigator.of(context).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.md)),
+                  ),
+                  child: Text("Done",
+                      style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -458,86 +542,8 @@ class _TopUpScreenState extends State<TopUpScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: kQuickAmounts.map((amt) {
-                      final bool isSelected = _amountController.text.trim() == amt.toStringAsFixed(0);
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(AppRadii.pill),
-                          onTap: () => setState(() {
-                            _amountController.text = amt.toStringAsFixed(0);
-                            _errorMessage = null;
-                          }),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: isSelected ? AppColors.primary : AppColors.surfaceAlt,
-                              borderRadius: BorderRadius.circular(AppRadii.pill),
-                            ),
-                            child: Text(
-                              amt.toStringAsFixed(0),
-                              style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
-                                  color: isSelected ? Colors.white : AppColors.ink),
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 22),
-            Text("SPEED",
-                style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textMuted,
-                    letterSpacing: 0.5)),
-            const SizedBox(height: 8),
-            Row(
-              children: kDepositSpeeds.map((speed) {
-                final bool isSelected = _selectedSpeed.id == speed.id;
-                return Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.only(right: speed == kDepositSpeeds.last ? 0 : 10),
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedSpeed = speed),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isSelected ? AppColors.primary.withOpacity(0.06) : Colors.white,
-                          borderRadius: BorderRadius.circular(AppRadii.md),
-                          border: Border.all(
-                              color: isSelected ? AppColors.primary : AppColors.border,
-                              width: isSelected ? 1.6 : 1),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                if (speed.id == 'instant')
-                                  Icon(Icons.bolt_rounded, size: 15, color: AppColors.primary),
-                                if (speed.id == 'instant') const SizedBox(width: 4),
-                                Text(speed.label,
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.w700, color: AppColors.ink, fontSize: 13.5)),
-                              ],
-                            ),
-                            const SizedBox(height: 3),
-                            Text(speed.detail, style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
             ),
             const SizedBox(height: 22),
             Text("REFERENCE (OPTIONAL)",

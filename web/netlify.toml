@@ -1,0 +1,78 @@
+# Netlify configuration for Dutch Remit (Flutter Web + static SEO pages)
+#
+# The problem this solves: Flutter Web is a single-page app. The naive
+# Netlify setup for an SPA is a catch-all `/* -> /index.html 200`, which
+# hands EVERY path to Flutter — including /about, /faq, /sitemap.xml.
+# Googlebot then requests /about (from the sitemap), Netlify serves the
+# Flutter index.html (a <canvas> with no text), and Google records
+# either a soft-404 or "Crawled - currently not indexed". The sitemap
+# "temporary processing error" is the same root cause: the sitemap's
+# clean URLs (/about) didn't resolve to real HTML.
+#
+# The fix, in strict order (Netlify evaluates redirects top-to-bottom,
+# first match wins):
+#   1. Map each clean SEO URL to its real static .html file (200 = serve
+#      the file, keep the clean URL in the address bar).
+#   2. Let real files (sitemap.xml, robots.txt, .html, assets) serve
+#      themselves — the clean-URL rules above already cover the pretty
+#      paths; Netlify serves any physically-present file directly.
+#   3. Only THEN fall back to the Flutter SPA for everything else
+#      (/login, /dashboard, deep links into the app).
+#
+# This is not cloaking: /about serves the SAME about.html to Google and
+# to users. The Flutter app is untouched for real in-app routes.
+
+[build]
+  publish = "."
+
+# --- 1. Clean URLs for the static, crawlable SEO pages ---
+# Serve the real HTML at the extensionless path the sitemap advertises.
+[[redirects]]
+  from = "/about"
+  to = "/about.html"
+  status = 200
+
+[[redirects]]
+  from = "/faq"
+  to = "/faq.html"
+  status = 200
+
+[[redirects]]
+  from = "/terms"
+  to = "/terms.html"
+  status = 200
+
+[[redirects]]
+  from = "/privacy"
+  to = "/privacy.html"
+  status = 200
+
+# --- 2. Flutter SPA fallback (MUST be last) ---
+# Anything not matched above and not a real file on disk is handed to
+# the Flutter app so its client-side router can take over (/login,
+# /dashboard, /signup, etc.). Netlify automatically serves any existing
+# physical file (sitemap.xml, robots.txt, flutter_bootstrap.js, assets,
+# icons) BEFORE applying this catch-all, so those are never swallowed.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# --- Headers ---
+# Let Googlebot and browsers cache sensibly; never cache index.html so
+# SEO/meta updates go live immediately on the next crawl.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/sitemap.xml"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+    Content-Type = "application/xml; charset=utf-8"
+
+[[headers]]
+  for = "/robots.txt"
+  [headers.values]
+    Content-Type = "text/plain; charset=utf-8"

@@ -183,7 +183,7 @@ create index if not exists cards_user_id_idx on public.cards (user_id);
 create table if not exists public.card_kyc_identities (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles (id) on delete cascade,
-  method text not null check (method in ('document', 'generated')),
+  method text not null check (method in ('document', 'generated', 'instant_auto')),
   country text,
   id_type text not null,
   id_number text not null,
@@ -272,16 +272,14 @@ create table if not exists public.businesses (
   created_at timestamptz not null default now()
 );
 
-insert into public.businesses (name, category)
-select * from (values
-  ('Dutch Remit Store', 'Retail'),
-  ('Jumia', 'E-commerce'),
-  ('Netflix', 'Subscriptions'),
-  ('Spotify', 'Subscriptions'),
-  ('MTN', 'Airtime & Data'),
-  ('DSTV', 'Subscriptions')
-) as seed(name, category)
-where not exists (select 1 from public.businesses);
+-- NOTE: this table intentionally ships with NO seed rows. It used to
+-- be pre-populated with demo brands (Jumia, Netflix, Spotify, MTN,
+-- DSTV, Dutch Remit Store), which showed up in every user's app as a
+-- "business directory" they didn't recognise and hadn't added. The
+-- directory now starts empty and is populated only with real, intended
+-- merchants. To add one later:
+--   insert into public.businesses (name, category, is_active)
+--   values ('Your Merchant', 'Category', true);
 
 -- ------------------------------------------------------------------
 -- devices — install/device metadata synced from the app

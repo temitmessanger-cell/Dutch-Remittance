@@ -19,15 +19,28 @@ class WalletScreen extends StatefulWidget {
 class _WalletScreenState extends State<WalletScreen> {
   CardsStorage availableCards = CardsStorage();
   Map<String, dynamic>? _primaryCard;
+  late Future<Map<String, dynamic>> _cardsFuture;
 
   @override
   void initState() {
     super.initState();
+    // CardsStorage is backend-driven now (no local Hive cache). Seed it
+    // with the auth key so it can fetch this user's cards, then reuse a
+    // single cached future rather than refetching on every rebuild.
+    _cardsFuture = _initAndLoadCards();
     _loadPrimaryCard();
   }
 
+  Future<Map<String, dynamic>> _initAndLoadCards() async {
+    final key = widget.userAuthKey;
+    if (key != null && key.trim().isNotEmpty) {
+      await availableCards.initializeAvailableCards(key);
+    }
+    return availableCards.readAvailableCards();
+  }
+
   Future<void> _loadPrimaryCard() async {
-    final data = await availableCards.readAvailableCards();
+    final data = await _cardsFuture;
     final cards = data['availableCards'] as List<dynamic>? ?? [];
     if (mounted && cards.isNotEmpty) {
       setState(() => _primaryCard = Map<String, dynamic>.from(cards.first));
@@ -52,7 +65,7 @@ class _WalletScreenState extends State<WalletScreen> {
             slivers: [
               SliverToBoxAdapter(
                 child: FutureBuilder<Map<String, dynamic>>(
-                  future: availableCards.readAvailableCards(),
+                  future: _cardsFuture,
                   builder: _buildFeaturedCardSection,
                 ),
               ),

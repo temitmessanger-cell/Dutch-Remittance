@@ -441,7 +441,9 @@ TextStyle _receiptHeaders =
 
   Widget _financialInstrumentsBuilder(
       BuildContext context, AsyncSnapshot<Map<String, dynamic>> snapshot) {
-    if (snapshot.hasData) {
+    if (snapshot.hasData &&
+        snapshot.data!.isNotEmpty &&
+        snapshot.data!['cardBrand'] != null) {
       final cardUsedInTransaction = snapshot.data!;
       double screenWidth=MediaQuery.of(context).size.width;
 

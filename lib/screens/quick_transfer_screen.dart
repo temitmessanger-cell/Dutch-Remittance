@@ -200,17 +200,15 @@ class _QuickTransferScreenState extends State<QuickTransferScreen> {
                       Text("From ${pair.country}",
                           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.ink)),
                       const SizedBox(height: 4),
-                      Text("1 ${pair.currencyCode} = ${pair.rateToDestination} ${_destination.currencyCode}",
+                      Text("Tap to see today's live rate",
                           style: TextStyle(
-                              fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.primary)),
+                              fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textMuted)),
                       const SizedBox(height: 10),
                       Row(
                         children: [
                           _chip("Momo"),
                           const SizedBox(width: 8),
                           _chip("Wallet"),
-                          const Spacer(),
-                          Text("~1 min", style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.success)),
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -234,7 +232,7 @@ class _QuickTransferScreenState extends State<QuickTransferScreen> {
               ),
             )),
         const SizedBox(height: 4),
-        Text("Delivery times are 90-day medians from real transfers. Rates include Dutch Remit's fee.",
+        Text("Live rates and delivery times are shown on the next screen when you start a transfer.",
             style: TextStyle(fontSize: 11.5, color: AppColors.textMuted, height: 1.4)),
       ],
     );

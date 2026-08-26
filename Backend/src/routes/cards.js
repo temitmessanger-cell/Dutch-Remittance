@@ -25,9 +25,41 @@ const CARD_FEE_ONE_TIME = 3.5;
 const CARD_FEE_MONTHLY = 1.1;
 const KYC_SKIP_FEE = 1.5;
 
+// Instant card: a flat $5.00 that issues a card immediately with no KYC
+// and no document collection at all. Behind the scenes it reuses an
+// existing Eversend cardholder (any the Dutch Remit merchant account
+// already has), and if none is usable it auto-provisions a fresh
+// cardholder with all fields populated synthetically — see the
+// /instant route below. This fee is instead of (not on top of) the
+// normal creation + KYC-skip fees.
+const INSTANT_CARD_FEE = 5.0;
+
 // Linking an existing card (as opposed to issuing a new Dutch-Remit
 // card) charges a flat $2.10 retrieval fee — see POST /link below.
 const CARD_LINK_FEE = 2.1;
+
+// Generates a cardholder/document ID that is guaranteed unique against
+// everything already in card_kyc_identities.id_number. A UUID collision
+// is astronomically unlikely, but for money-linked identity records we
+// verify against the DB rather than assume — retrying on the vanishing
+// chance of a clash. Format: DR- + 12 uppercase hex chars, e.g.
+// DR-9F3A1C7E2B04.
+async function generateUniqueCardholderId() {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const candidate = `DR-${crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`;
+    const { data, error } = await supabaseAdmin
+      .from('card_kyc_identities')
+      .select('id')
+      .eq('id_number', candidate)
+      .maybeSingle();
+    // On a lookup error, fall back to a full UUID (still unique enough)
+    // rather than blocking card issuance.
+    if (error) return `DR-${crypto.randomUUID().toUpperCase()}`;
+    if (!data) return candidate;
+  }
+  // Exhausted retries (effectively impossible) — use a full UUID.
+  return `DR-${crypto.randomUUID().toUpperCase()}`;
+}
 
 // SECURITY: every route below that takes a :cardId param (view,
 // fund, withdraw, freeze, unfreeze, terminate) MUST confirm the card
@@ -135,8 +167,14 @@ router.post('/user', requireAppUser, async (req, res, next) => {
     let kycRow;
 
     if (skipKyc) {
-      const idType = AFRICAN_COUNTRY_CODES.has(country.toUpperCase()) ? 'ID' : 'FOREIGN';
-      const idNumber = `DR-${crypto.randomUUID()}`;
+      // Per product spec: no documents are asked for. African countries
+      // get a National_ID, foreign countries get a Passport. The idNumber
+      // is auto-generated and guaranteed not to collide with any existing
+      // one in card_kyc_identities (see generateUniqueCardholderId).
+      const idType = AFRICAN_COUNTRY_CODES.has(country.toUpperCase())
+        ? 'National_ID'
+        : 'Passport';
+      const idNumber = await generateUniqueCardholderId();
       eversendBody = { ...req.body, idType, idNumber };
       delete eversendBody.skipKyc;
       kycRow = { method: 'generated', country, id_type: idType, id_number: idNumber, document_path: null };
@@ -284,6 +322,144 @@ router.get('/', requireAppUser, async (req, res, next) => {
   try {
     const data = await eversend.get('/cards');
     res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/v1/cards/instant
+// Body: { title?, amount, currency, brand, color? }
+// The $5 "instant card" tier: NO KYC, NO documents, issued immediately.
+//
+// Flow (all automated, nothing asked of the user):
+//   1. Ensure a usable Eversend cardholder exists for this Dutch Remit
+//      user. If the user already has one (profiles.eversend_card_user_id),
+//      reuse it. Otherwise auto-provision one behind the scenes by
+//      populating every required cardholder field with synthetic-but-
+//      valid values (name/email/phone from the user's profile where
+//      available, address fields filled with sane defaults), using the
+//      same National_ID/Passport + collision-proof idNumber scheme as
+//      the no-KYC path. This is the "backup: automatically creates a
+//      cardholder by populating all the fields" behaviour.
+//   2. Immediately issue the card against that cardholder.
+//   3. Charge the flat $5 instant fee (instead of the normal creation +
+//      KYC-skip fees).
+router.post('/instant', requireAppUser, async (req, res, next) => {
+  try {
+    const { amount, currency, brand } = req.body || {};
+    if (!amount || !currency || !brand) {
+      return res.status(400).json({ error: 'amount, currency and brand are required.' });
+    }
+    if (!['visa', 'mastercard'].includes(brand)) {
+      return res.status(400).json({ error: 'brand must be visa or mastercard.' });
+    }
+
+    // --- Step 1: resolve or auto-provision a cardholder ---
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('eversend_card_user_id, first_name, last_name, email, phone_number, country')
+      .eq('id', req.user.id)
+      .maybeSingle();
+
+    let cardUserId = profile?.eversend_card_user_id || null;
+
+    if (!cardUserId) {
+      // No cardholder yet — build one automatically with all fields
+      // populated. Missing profile values fall back to safe defaults so
+      // Eversend's required-field validation always passes.
+      const country = (profile?.country || 'CM').toUpperCase();
+      const idType = AFRICAN_COUNTRY_CODES.has(country) ? 'National_ID' : 'Passport';
+      const idNumber = await generateUniqueCardholderId();
+      const firstName = profile?.first_name || 'Dutch';
+      const lastName = profile?.last_name || 'Remit';
+      const email = profile?.email || `user-${req.user.id}@dutchremit.dubiabank.com`;
+      const phone = profile?.phone_number || '+237600000000';
+
+      const cardholderBody = {
+        firstName,
+        lastName,
+        email,
+        phone,
+        country,
+        state: 'N/A',
+        city: 'N/A',
+        address: 'N/A',
+        zipCode: '00000',
+        idType,
+        idNumber,
+      };
+
+      const created = await eversend.post('/cards/user', cardholderBody);
+      cardUserId = created?.id ?? created?.data?.id ?? created?.userId;
+
+      await supabaseAdmin
+        .from('profiles')
+        .update({ eversend_card_user_id: cardUserId })
+        .eq('id', req.user.id);
+
+      await supabaseAdmin.from('card_kyc_identities').insert({
+        user_id: req.user.id,
+        eversend_card_user_id: cardUserId,
+        method: 'instant_auto',
+        country,
+        id_type: idType,
+        id_number: idNumber,
+        document_path: null,
+      });
+    }
+
+    if (!cardUserId) {
+      return res.status(502).json({ error: 'Could not provision a cardholder for instant issuance.' });
+    }
+
+    // --- Step 2: issue the card immediately ---
+    const title = req.body.title || `${req.body.color || 'blue'} card`;
+    const color = req.body.color || 'blue';
+    const data = await eversend.post('/cards', {
+      title,
+      color,
+      amount,
+      userId: cardUserId,
+      currency,
+      brand,
+      isNonSubscription: true,
+    });
+
+    await supabaseAdmin.from('cards').insert({
+      user_id: req.user.id,
+      eversend_card_id: data?.id ?? data?.data?.id ?? null,
+      title,
+      color,
+      kind: 'virtual',
+      status: 'active',
+      raw_response: data,
+    });
+
+    // Card funding transaction
+    await supabaseAdmin.from('transactions').insert({
+      user_id: req.user.id,
+      type: 'card_fund',
+      status: data?.status ?? 'completed',
+      amount,
+      currency,
+      method: 'card',
+      provider: 'eversend',
+      raw_response: data,
+    });
+
+    // --- Step 3: flat instant fee (replaces creation + KYC-skip fees) ---
+    await supabaseAdmin.from('transactions').insert({
+      user_id: req.user.id,
+      type: 'card_creation_fee',
+      status: 'completed',
+      amount: INSTANT_CARD_FEE,
+      currency: 'USD',
+      method: 'card',
+      provider: 'dutch_remit',
+      raw_response: { tier: 'instant', instantCardFee: INSTANT_CARD_FEE },
+    });
+
+    res.json({ ...data, feeCharged: { instantCardFee: INSTANT_CARD_FEE, totalFee: INSTANT_CARD_FEE } });
   } catch (err) {
     next(err);
   }

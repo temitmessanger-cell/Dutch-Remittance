@@ -16,6 +16,23 @@ import 'package:dutch_remit/components/shared/transaction_receipt_dialog.dart';
 const double kCardFeeOneTime = 3.5;
 const double kCardFeeMonthly = 1.1;
 const double kKycSkipFee = 1.5;
+const double kInstantCardFee = 5.0;
+
+/// The three card-creation tiers the user picks between before anything
+/// else. See Backend/src/routes/cards.js for the matching server logic.
+enum CardTier {
+  /// Full KYC with a real uploaded document. Free (only the normal
+  /// card-creation + funding fees apply).
+  withKyc,
+
+  /// No documents asked. idType is National_ID (African countries) or
+  /// Passport (foreign), idNumber auto-generated server-side. +$1.50.
+  withoutKyc,
+
+  /// Issued instantly, no KYC or documents at all — the backend reuses
+  /// or auto-provisions a cardholder behind the scenes. Flat $5.
+  instant,
+}
 
 /// Real virtual card issuance via Eversend's documented Cards API
 /// (POST /cards/user, then POST /cards — see Backend/src/routes/cards.js,
@@ -37,7 +54,10 @@ class CreateVirtualCardScreen extends StatefulWidget {
 }
 
 class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
-  int _step = 0;
+  // _step == -1 is the tier picker, shown first. 0/1/2 are the existing
+  // identity → design → review steps.
+  int _step = -1;
+  CardTier? _tier;
   bool _isSubmitting = false;
   String? _errorMessage;
   String? _cardUserId;
@@ -72,7 +92,9 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
 
   double get _cardCreationFee => _cardFeeType == 'one_time' ? kCardFeeOneTime : kCardFeeMonthly;
   double get _kycSkipFeeAmount => _skipKyc ? kKycSkipFee : 0;
-  double get _totalFees => _cardCreationFee + _kycSkipFeeAmount;
+  double get _totalFees => _tier == CardTier.instant
+      ? kInstantCardFee
+      : _cardCreationFee + _kycSkipFeeAmount;
 
   static const List<String> _colors = ['blue', 'black', 'purple', 'orange', 'yellow'];
   static const List<String> _idTypes = ['National_ID', 'Passport', 'Driving_License'];
@@ -213,7 +235,13 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
       setState(() => _errorMessage = "Enter a card name and a funding amount above 0.");
       return;
     }
-    if (_cardUserId == null) {
+
+    final bool isInstant = _tier == CardTier.instant;
+
+    // The instant tier issues without a pre-created cardholder — the
+    // backend resolves or auto-provisions one. Every other tier requires
+    // the identity step to have run and produced a _cardUserId first.
+    if (!isInstant && _cardUserId == null) {
       setState(() => _errorMessage = "Your identity profile wasn't saved correctly — go back and try again.");
       return;
     }
@@ -224,17 +252,25 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
     });
 
     final result = await sendData(
-      urlPath: "/api/v1/cards",
-      data: {
-        "title": _titleController.text.trim(),
-        "color": _color,
-        "brand": _brand,
-        "amount": amount.toString(),
-        "currency": _currency,
-        "userId": _cardUserId,
-        "cardFeeType": _cardFeeType,
-        "skipKyc": _skipKyc,
-      },
+      urlPath: isInstant ? "/api/v1/cards/instant" : "/api/v1/cards",
+      data: isInstant
+          ? {
+              "title": _titleController.text.trim(),
+              "color": _color,
+              "brand": _brand,
+              "amount": amount.toString(),
+              "currency": _currency,
+            }
+          : {
+              "title": _titleController.text.trim(),
+              "color": _color,
+              "brand": _brand,
+              "amount": amount.toString(),
+              "currency": _currency,
+              "userId": _cardUserId,
+              "cardFeeType": _cardFeeType,
+              "skipKyc": _skipKyc,
+            },
       authKey: widget.userAuthKey,
     );
 
@@ -287,24 +323,25 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
-              child: Row(
-                children: List.generate(3, (i) {
-                  final bool done = i <= _step;
-                  return Expanded(
-                    child: Container(
-                      margin: EdgeInsets.only(right: i == 2 ? 0 : 6),
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: done ? AppColors.primary : AppColors.surfaceAlt,
-                        borderRadius: BorderRadius.circular(AppRadii.pill),
+            if (_step >= 0)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                child: Row(
+                  children: List.generate(3, (i) {
+                    final bool done = i <= _step;
+                    return Expanded(
+                      child: Container(
+                        margin: EdgeInsets.only(right: i == 2 ? 0 : 6),
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: done ? AppColors.primary : AppColors.surfaceAlt,
+                          borderRadius: BorderRadius.circular(AppRadii.pill),
+                        ),
                       ),
-                    ),
-                  );
-                }),
+                    );
+                  }),
+                ),
               ),
-            ),
             Expanded(
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 200),
@@ -317,8 +354,143 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
     );
   }
 
+  /// Selects a tier and advances. With-KYC and without-KYC both go into
+  /// the normal wizard (they only differ by whether documents are asked
+  /// for). Instant skips the wizard entirely and issues immediately.
+  void _selectTier(CardTier tier) {
+    setState(() {
+      _tier = tier;
+      _errorMessage = null;
+      if (tier == CardTier.withKyc) {
+        _skipKyc = false;
+        _step = 0;
+      } else if (tier == CardTier.withoutKyc) {
+        _skipKyc = true;
+        _step = 0;
+      } else {
+        // Instant — no identity step needed at all.
+        _skipKyc = true;
+        _step = 1; // straight to design & funding
+      }
+    });
+  }
+
+  Widget _stepTierPicker() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+      children: [
+        Text("Choose how to create your card",
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink)),
+        const SizedBox(height: 6),
+        Text(
+            "You'll need to verify your details (create a cardholder) before a card can be issued. Pick the option that suits you.",
+            style: TextStyle(fontSize: 13.5, height: 1.45, color: AppColors.inkMuted)),
+        const SizedBox(height: 20),
+        _tierCard(
+          tier: CardTier.withKyc,
+          icon: Icons.verified_user_rounded,
+          accent: AppColors.success,
+          title: "With verification",
+          price: "Free",
+          blurb:
+              "Upload a valid ID document. Standard verification — no extra fee beyond the normal card cost.",
+        ),
+        const SizedBox(height: 12),
+        _tierCard(
+          tier: CardTier.withoutKyc,
+          icon: Icons.flash_auto_rounded,
+          accent: AppColors.primary,
+          title: "Without verification",
+          price: "+\$${kKycSkipFee.toStringAsFixed(2)}",
+          blurb:
+              "Skip document upload. We complete verification for you automatically — National ID for African countries, Passport elsewhere.",
+        ),
+        const SizedBox(height: 12),
+        _tierCard(
+          tier: CardTier.instant,
+          icon: Icons.bolt_rounded,
+          accent: const Color(0xFFF5B841),
+          title: "Instant card",
+          price: "\$${kInstantCardFee.toStringAsFixed(2)}",
+          blurb:
+              "Issued immediately. No documents, no verification steps — your cardholder is set up automatically behind the scenes.",
+        ),
+      ],
+    );
+  }
+
+  Widget _tierCard({
+    required CardTier tier,
+    required IconData icon,
+    required Color accent,
+    required String title,
+    required String price,
+    required String blurb,
+  }) {
+    return InkWell(
+      onTap: () => _selectTier(tier),
+      borderRadius: BorderRadius.circular(AppRadii.lg),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(AppRadii.lg),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: accent.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(AppRadii.md),
+              ),
+              child: Icon(icon, color: accent, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(title,
+                            style: TextStyle(
+                                fontSize: 15.5, fontWeight: FontWeight.w800, color: AppColors.ink)),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: accent.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(AppRadii.pill),
+                        ),
+                        child: Text(price,
+                            style: TextStyle(
+                                fontSize: 12.5, fontWeight: FontWeight.w800, color: accent)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(blurb,
+                      style: TextStyle(fontSize: 12.5, height: 1.4, color: AppColors.inkMuted)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildStep() {
     switch (_step) {
+      case -1:
+        return _stepTierPicker();
       case 0:
         return _stepIdentity();
       case 1:
@@ -617,21 +789,23 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
           decoration: _dec("10"),
           onChanged: (_) => setState(() {}),
         ),
-        _label("CARD CREATION FEE"),
-        Row(
-          children: [
-            Expanded(
-              child: _feeOption(
-                  label: "One-time", price: "\$${kCardFeeOneTime.toStringAsFixed(2)}", value: 'one_time'),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _feeOption(
-                  label: "Monthly", price: "\$${kCardFeeMonthly.toStringAsFixed(2)}/mo", value: 'monthly'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
+        if (_tier != CardTier.instant) ...[
+          _label("CARD CREATION FEE"),
+          Row(
+            children: [
+              Expanded(
+                child: _feeOption(
+                    label: "One-time", price: "\$${kCardFeeOneTime.toStringAsFixed(2)}", value: 'one_time'),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _feeOption(
+                    label: "Monthly", price: "\$${kCardFeeMonthly.toStringAsFixed(2)}/mo", value: 'monthly'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+        ],
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -643,9 +817,13 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
             children: [
               _feeRow("Funding amount",
                   "${(double.tryParse(_amountController.text.trim()) ?? 0).toStringAsFixed(2)} $_currency"),
-              _feeRow(_cardFeeType == 'one_time' ? "Card fee (one-time)" : "Card fee (first month)",
-                  "\$${_cardCreationFee.toStringAsFixed(2)}"),
-              if (_skipKyc) _feeRow("No-KYC fee", "\$${_kycSkipFeeAmount.toStringAsFixed(2)}"),
+              if (_tier == CardTier.instant)
+                _feeRow("Instant card fee", "\$${kInstantCardFee.toStringAsFixed(2)}")
+              else ...[
+                _feeRow(_cardFeeType == 'one_time' ? "Card fee (one-time)" : "Card fee (first month)",
+                    "\$${_cardCreationFee.toStringAsFixed(2)}"),
+                if (_skipKyc) _feeRow("No-KYC fee", "\$${_kycSkipFeeAmount.toStringAsFixed(2)}"),
+              ],
               Divider(color: AppColors.divider, height: 18),
               _feeRow(
                 "Total charged today",
@@ -664,7 +842,7 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: () => setState(() => _step = 0),
+                onPressed: () => setState(() => _step = _tier == CardTier.instant ? -1 : 0),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   side: BorderSide(color: AppColors.border),

@@ -31,9 +31,47 @@ class OnboardingScreen extends StatefulWidget {
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+class _OnboardingScreenState extends State<OnboardingScreen>
+    with TickerProviderStateMixin {
   final UserDeviceInfoStorage userDeviceInfoStorage = UserDeviceInfoStorage();
   bool _isContinuing = false;
+
+  late final AnimationController _entrance;
+
+  @override
+  void initState() {
+    super.initState();
+    _entrance = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..forward();
+  }
+
+  @override
+  void dispose() {
+    _entrance.dispose();
+    super.dispose();
+  }
+
+  /// A staggered fade-and-rise for hero elements. `start`/`end` are
+  /// fractions of the entrance timeline so elements cascade in.
+  Widget _fadeSlide(Widget child, double start, double end) {
+    final curved = CurvedAnimation(
+      parent: _entrance,
+      curve: Interval(start, end, curve: Curves.easeOutCubic),
+    );
+    return AnimatedBuilder(
+      animation: curved,
+      builder: (context, c) => Opacity(
+        opacity: curved.value,
+        child: Transform.translate(
+          offset: Offset(0, 18 * (1 - curved.value)),
+          child: c,
+        ),
+      ),
+      child: child,
+    );
+  }
 
   void _getDocs() {
     Navigator.push(
@@ -166,91 +204,107 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       const SizedBox(height: 36),
 
                       // -- Eyebrow --
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: gold.withOpacity(0.16),
-                          borderRadius: BorderRadius.circular(20),
+                      _fadeSlide(
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: gold.withOpacity(0.16),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            'CAMEROON\'S #1 REMITTANCE PLATFORM',
+                            style: GoogleFonts.manrope(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.2,
+                                color: gold),
+                          ),
                         ),
-                        child: Text(
-                          'CAMEROON\'S #1 REMITTANCE PLATFORM',
-                          style: GoogleFonts.manrope(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 1.2,
-                              color: gold),
-                        ),
+                        0.0,
+                        0.4,
                       ),
                       const SizedBox(height: 20),
 
                       // -- Headline --
-                      Text.rich(
-                        TextSpan(
-                          children: [
-                            TextSpan(
-                              text: 'Send money home.\n',
-                              style: GoogleFonts.manrope(
-                                  fontSize: 34,
-                                  fontWeight: FontWeight.w800,
-                                  height: 1.1,
-                                  color: Colors.white),
-                            ),
-                            TextSpan(
-                              text: 'Spend anywhere.',
-                              style: GoogleFonts.manrope(
-                                  fontSize: 34,
-                                  fontWeight: FontWeight.w800,
-                                  height: 1.1,
-                                  color: gold),
-                            ),
-                          ],
+                      _fadeSlide(
+                        Text.rich(
+                          TextSpan(
+                            children: [
+                              TextSpan(
+                                text: 'Send money home.\n',
+                                style: GoogleFonts.manrope(
+                                    fontSize: 34,
+                                    fontWeight: FontWeight.w800,
+                                    height: 1.1,
+                                    color: Colors.white),
+                              ),
+                              TextSpan(
+                                text: 'Spend anywhere.',
+                                style: GoogleFonts.manrope(
+                                    fontSize: 34,
+                                    fontWeight: FontWeight.w800,
+                                    height: 1.1,
+                                    color: gold),
+                              ),
+                            ],
+                          ),
                         ),
+                        0.12,
+                        0.55,
                       ),
                       const SizedBox(height: 14),
-                      Text(
-                        'Instant transfers across Africa and virtual cards for online spending — trusted by Cameroonians worldwide.',
-                        style: GoogleFonts.manrope(
-                            fontSize: 15,
-                            height: 1.5,
-                            color: Colors.white.withOpacity(0.80)),
+                      _fadeSlide(
+                        Text(
+                          'Instant transfers across Africa and virtual cards for online spending — trusted by Cameroonians worldwide.',
+                          style: GoogleFonts.manrope(
+                              fontSize: 15,
+                              height: 1.5,
+                              color: Colors.white.withOpacity(0.80)),
+                        ),
+                        0.24,
+                        0.65,
                       ),
                       const SizedBox(height: 26),
 
                       // -- Primary CTA --
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _isContinuing ? null : _startSending,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: gold,
-                            foregroundColor: heroTop,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(vertical: 18),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14)),
+                      _fadeSlide(
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _isContinuing ? null : _startSending,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: gold,
+                              foregroundColor: heroTop,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 18),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14)),
+                            ),
+                            child: _isContinuing
+                                ? SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2.6, color: heroTop),
+                                  )
+                                : Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text('Get started',
+                                          style: GoogleFonts.manrope(
+                                              fontSize: 16.5,
+                                              fontWeight: FontWeight.w800,
+                                              color: heroTop)),
+                                      const SizedBox(width: 8),
+                                      Icon(Icons.arrow_forward_rounded,
+                                          color: heroTop, size: 20),
+                                    ],
+                                  ),
                           ),
-                          child: _isContinuing
-                              ? SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2.6, color: heroTop),
-                                )
-                              : Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text('Get started',
-                                        style: GoogleFonts.manrope(
-                                            fontSize: 16.5,
-                                            fontWeight: FontWeight.w800,
-                                            color: heroTop)),
-                                    const SizedBox(width: 8),
-                                    Icon(Icons.arrow_forward_rounded,
-                                        color: heroTop, size: 20),
-                                  ],
-                                ),
                         ),
+                        0.36,
+                        0.8,
                       ),
                       const SizedBox(height: 12),
                       Center(
@@ -274,13 +328,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             // ==================== SEND PREVIEW CARD ====================
             // Sits on the seam between hero and body — the visual
             // centerpiece, showing what the product actually does.
-            Transform.translate(
-              offset: const Offset(0, -28),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: _SendPreviewCard(
-                    heroTop: heroTop, gold: gold, ink: ink, inkMuted: inkMuted),
+            _fadeSlide(
+              Transform.translate(
+                offset: const Offset(0, -28),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _SendPreviewCard(
+                      heroTop: heroTop, gold: gold, ink: ink, inkMuted: inkMuted),
+                ),
               ),
+              0.5,
+              1.0,
             ),
 
             // ==================== FEATURES ====================

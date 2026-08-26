@@ -2,6 +2,8 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:dutch_remit/components/settings_screen/all_licenses.dart';
 import 'package:dutch_remit/components/shared/dutch_remit_wordmark.dart';
+import 'package:dutch_remit/components/shared/transaction_receipt_dialog.dart'
+    show kSupportWhatsAppUrl;
 import 'package:dutch_remit/database/cards_storage.dart';
 import 'package:dutch_remit/database/login_info_storage.dart';
 import 'package:dutch_remit/database/product_tour_storage.dart';
@@ -75,15 +77,15 @@ class AppSettingsComponent extends StatelessWidget {
         'title': Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Call support', style: itemStyle),
+            Text('Chat with support on WhatsApp', style: itemStyle),
             const SizedBox(height: 2),
-            Text('+1 (289) 791-2474 — for urgent issues',
+            Text('+1 (289) 791-2474 — tap to open WhatsApp',
                 style: TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
           ],
         ),
-        'trailing': Icon(Icons.call_rounded, color: AppColors.success),
+        'trailing': Icon(Icons.chat_rounded, color: AppColors.success),
         'onTap': () {
-          launchExternalURL('tel:+12897912474');
+          launchExternalURL(kSupportWhatsAppUrl);
         },
         'settingsCategory': 'Help & Contact',
       },
