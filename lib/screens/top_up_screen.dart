@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:dutch_remit/database/crypto_price_service.dart';
-import 'package:dutch_remit/providers/user_login_state_provider.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
+import 'package:dutch_remit/utilities/make_api_request.dart';
 import 'package:dutch_remit/utilities/slide_right_route.dart';
 import 'package:dutch_remit/screens/mobile_money_deposit_screen.dart';
 
