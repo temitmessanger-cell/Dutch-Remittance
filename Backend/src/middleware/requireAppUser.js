@@ -33,74 +33,93 @@ async function requireAppUser(req, res, next) {
     return res.status(401).json({ error: 'Missing bearer token.' });
   }
 
-  // Try a real Supabase session first.
-  const { data: supabaseUser } = await supabaseAdmin.auth.getUser(token);
-  if (supabaseUser?.user) {
-    const { data: profile, error } = await supabaseAdmin
-      .from('profiles')
-      .select('id')
-      .eq('auth_user_id', supabaseUser.user.id)
-      .maybeSingle();
+  // Everything below this point used to have no try/catch at all —
+  // any Supabase call throwing (a transient network blip, a
+  // malformed/expired token that supabaseAdmin.auth.getUser()
+  // rejects with an exception rather than an error field, an insert
+  // violating a constraint) escaped straight past Express's normal
+  // routing and landed in the browser as a bare, unformatted 500
+  // with no JSON body — exactly the symptom reported against
+  // POST /api/v1/collections/otp. Wrapped in try/catch now so every
+  // failure here returns the same clean JSON shape every other route
+  // in this backend does, via errorHandler.js.
+  try {
+    // Try a real Supabase session first.
+    const { data: supabaseUser } = await supabaseAdmin.auth.getUser(token);
+    if (supabaseUser?.user) {
+      const { data: profile, error } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('auth_user_id', supabaseUser.user.id)
+        .maybeSingle();
 
-    if (error) return res.status(500).json({ error: 'Failed to resolve profile.' });
+      if (error) return res.status(500).json({ error: 'Failed to resolve profile.' });
 
-    if (profile) {
-      req.user = { id: profile.id };
+      if (profile) {
+        req.user = { id: profile.id };
+        return next();
+      }
+
+      // Supabase Auth user exists but the trigger hasn't caught up yet
+      // (or ran before this backend existed) — create the row now.
+      const { data: created, error: createError } = await supabaseAdmin
+        .from('profiles')
+        .insert({
+          auth_user_id: supabaseUser.user.id,
+          email: supabaseUser.user.email,
+        })
+        .select('id')
+        .single();
+
+      if (createError) return res.status(500).json({ error: 'Failed to create profile.' });
+      req.user = { id: created.id };
       return next();
     }
 
-    // Supabase Auth user exists but the trigger hasn't caught up yet
-    // (or ran before this backend existed) — create the row now.
-    const { data: created, error: createError } = await supabaseAdmin
+    // Fall back to the legacy token scheme.
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    const { data: existingSession } = await supabaseAdmin
+      .from('legacy_sessions')
+      .select('profile_id')
+      .eq('token_hash', tokenHash)
+      .maybeSingle();
+
+    if (existingSession) {
+      await supabaseAdmin
+        .from('legacy_sessions')
+        .update({ last_seen_at: new Date().toISOString() })
+        .eq('token_hash', tokenHash);
+      req.user = { id: existingSession.profile_id };
+      return next();
+    }
+
+    // First time we've seen this token — mint a profile for it.
+    const { data: newProfile, error: newProfileError } = await supabaseAdmin
       .from('profiles')
-      .insert({
-        auth_user_id: supabaseUser.user.id,
-        email: supabaseUser.user.email,
-      })
+      .insert({})
       .select('id')
       .single();
 
-    if (createError) return res.status(500).json({ error: 'Failed to create profile.' });
-    req.user = { id: created.id };
-    return next();
+    if (newProfileError) {
+      return res.status(500).json({ error: 'Failed to create a session.' });
+    }
+
+    await supabaseAdmin.from('legacy_sessions').insert({
+      token_hash: tokenHash,
+      profile_id: newProfile.id,
+    });
+
+    req.user = { id: newProfile.id };
+    next();
+  } catch (err) {
+    // Same normalized shape every other error in this backend
+    // returns, instead of a bare, unformatted 500.
+    res.status(500).json({
+      error: 'Could not verify your session right now. Please try again.',
+      details: process.env.NODE_ENV !== 'production' ? err.message : undefined,
+    });
   }
-
-  // Fall back to the legacy token scheme.
-  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-
-  const { data: existingSession } = await supabaseAdmin
-    .from('legacy_sessions')
-    .select('profile_id')
-    .eq('token_hash', tokenHash)
-    .maybeSingle();
-
-  if (existingSession) {
-    await supabaseAdmin
-      .from('legacy_sessions')
-      .update({ last_seen_at: new Date().toISOString() })
-      .eq('token_hash', tokenHash);
-    req.user = { id: existingSession.profile_id };
-    return next();
-  }
-
-  // First time we've seen this token — mint a profile for it.
-  const { data: newProfile, error: newProfileError } = await supabaseAdmin
-    .from('profiles')
-    .insert({})
-    .select('id')
-    .single();
-
-  if (newProfileError) {
-    return res.status(500).json({ error: 'Failed to create a session.' });
-  }
-
-  await supabaseAdmin.from('legacy_sessions').insert({
-    token_hash: tokenHash,
-    profile_id: newProfile.id,
-  });
-
-  req.user = { id: newProfile.id };
-  next();
 }
 
 /// Same identity resolution as requireAppUser, but never blocks the
