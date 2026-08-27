@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dutch_remit/components/settings_screen/app_settings.dart';
+import 'package:dutch_remit/screens/rewards_hub_screen.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
+import 'package:dutch_remit/utilities/slide_right_route.dart';
 
 /// The Profile/Settings bottom-nav tab. Replaces the old gear icon that
 /// used to live inside the Cards screen's app bar — settings deserve
@@ -132,8 +134,77 @@ class ProfileSettingsTabScreen extends StatelessWidget {
                   ),
                 ),
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: _RewardsHubCard(
+                onTap: () => Navigator.push(
+                    context, SlideRightRoute(page: const RewardsHubScreen())),
+              ),
+            ),
             Divider(height: 1, color: AppColors.divider),
             Expanded(child: AppSettingsComponent()),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Entry point into the Tasks & Rewards hub — a gold-accented card
+/// styled to stand apart from the plain settings list below it, since
+/// it leads somewhere with visual identity of its own rather than a
+/// static settings page.
+class _RewardsHubCard extends StatelessWidget {
+  final VoidCallback onTap;
+  const _RewardsHubCard({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadii.lg),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppColors.primary, AppColors.primaryDark],
+          ),
+          borderRadius: BorderRadius.circular(AppRadii.lg),
+          boxShadow: AppShadows.card,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.card_giftcard_rounded,
+                  color: Color(0xFFF5B841), size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Tasks & Rewards',
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white)),
+                  const SizedBox(height: 2),
+                  Text('Complete tasks, earn coupons and fee discounts',
+                      style: TextStyle(
+                          fontSize: 12.5, color: Colors.white.withOpacity(0.75))),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.7)),
           ],
         ),
       ),

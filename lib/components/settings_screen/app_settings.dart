@@ -2,6 +2,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:dutch_remit/components/settings_screen/all_licenses.dart';
 import 'package:dutch_remit/components/shared/dutch_remit_wordmark.dart';
+import 'package:dutch_remit/components/shared/invite_to_dutch_remit_sheet.dart';
 import 'package:dutch_remit/components/shared/transaction_receipt_dialog.dart'
     show kSupportWhatsAppUrl;
 import 'package:dutch_remit/database/cards_storage.dart';
@@ -101,8 +102,7 @@ class AppSettingsComponent extends StatelessWidget {
         ),
         'trailing': Icon(Icons.person_add_alt_1_rounded, color: AppColors.primary),
         'onTap': () {
-          launchExternalURL(
-              "sms:?body=I'm on Dutch Remit — join me and let's send money simply. Download it here: https://dutchremit.app");
+          showInviteToDutchRemitSheet(context);
         },
         'settingsCategory': 'Invite',
       },
@@ -113,6 +113,20 @@ class AppSettingsComponent extends StatelessWidget {
           Navigator.of(context).popUntil((route) => route.isFirst);
           ProductTourStorage.requestReplay();
         },
+        'settingsCategory': 'About the app',
+      },
+      {
+        'title': Text('About Dutch Remit', style: itemStyle),
+        'trailing': Icon(FluentIcons.info_24_regular, color: AppColors.textMuted),
+        'onTap': () =>
+            openDocsViewer(kAboutDutchRemit, 'About Dutch Remit', context),
+        'settingsCategory': 'About the app',
+      },
+      {
+        'title': Text('Frequently Asked Questions', style: itemStyle),
+        'trailing': Icon(FluentIcons.chat_help_24_regular, color: AppColors.textMuted),
+        'onTap': () => openDocsViewer(
+            kFrequentlyAskedQuestions, 'Frequently Asked Questions', context),
         'settingsCategory': 'About the app',
       },
       {

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:dutch_remit/database/contacts_storage.dart';
 import 'package:dutch_remit/database/successful_transactions_storage.dart';
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
+import 'package:dutch_remit/utilities/african_country_data.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
 import 'package:dutch_remit/utilities/custom_date_grouping.dart';
 import 'package:dutch_remit/utilities/gift_occasion_data.dart';
@@ -10,29 +11,17 @@ import 'package:dutch_remit/utilities/make_api_request.dart';
 import 'package:dutch_remit/components/shared/transfer_info_widgets.dart';
 import 'package:dutch_remit/components/shared/transaction_receipt_dialog.dart';
 
-const List<String> kGiftDestinationCountries = [
-  "Cameroon",
-  "Côte d'Ivoire",
-  "Ghana",
-  "Kenya",
-  "Nigeria",
-  "Rwanda",
-  "Senegal",
-  "Tanzania",
-  "Uganda",
-  "Zambia",
-  "United Kingdom",
-  "United States",
-  "Europe",
-];
-
 const List<double> kGiftQuickAmounts = [10, 15, 20, 30, 50, 100];
 
 /// Send a gift for an occasion to one of your real saved contacts —
 /// matching the reference design's occasion grid -> recipient + message
 /// -> amount flow. Recipients are pulled from the same real sources the
 /// Send & Recipients tab uses (server contacts + locally-added
-/// contacts) — never a placeholder or invented name.
+/// contacts) — never a placeholder or invented name. Sending itself
+/// goes through the same real quote -> payout pair every other send
+/// flow in the app uses (POST /api/v1/rates/quotation, then
+/// POST /api/v1/payouts/send) — a prior version of this screen faked
+/// the send with a timed delay and no backend call at all; fixed.
 class GiftsScreen extends StatefulWidget {
   final Map<String, dynamic> user;
   final String userAuthKey;
@@ -49,6 +38,7 @@ class _GiftsScreenState extends State<GiftsScreen> {
 
   GiftOccasion? _selectedOccasion;
   Map<String, dynamic>? _selectedRecipient;
+  AfricanCountryInfo? _selectedDestination;
   double? _selectedAmount;
   bool _isProcessing = false;
   String? _errorMessage;
@@ -178,17 +168,95 @@ class _GiftsScreenState extends State<GiftsScreen> {
       setState(() => _errorMessage = "Choose or enter a gift amount.");
       return;
     }
+    final recipientPhone = _selectedRecipient!['phoneNumber']?.toString().trim();
+    if (recipientPhone == null || recipientPhone.isEmpty) {
+      setState(() => _errorMessage =
+          "This contact doesn't have a phone number saved — add one from Send & Recipients first.");
+      return;
+    }
+    if (_selectedDestination == null) {
+      setState(() => _errorMessage = "Choose which country to send this gift to.");
+      return;
+    }
 
     setState(() {
       _isProcessing = true;
       _errorMessage = null;
     });
 
-    await Future.delayed(const Duration(milliseconds: 900));
+    // Real quote + real payout — the same POST /api/v1/rates/quotation
+    // -> POST /api/v1/payouts/send pair every other send flow in the
+    // app uses (see africa_corridor_screen.dart). This replaces a
+    // previous version of this screen that used a 900ms
+    // Future.delayed and a fake success receipt with no backend call
+    // at all — the recipient's balance never actually moved.
+    final quoteResult = await sendData(
+      urlPath: "/api/v1/rates/quotation",
+      data: {
+        "sourceWallet": "USD",
+        "amount": amount,
+        "amountType": "SOURCE",
+        "type": "momo",
+        "destinationCountry": _selectedDestination!.countryCode,
+        "destinationCurrency": _selectedDestination!.currencyCode,
+      },
+      authKey: widget.userAuthKey,
+    );
+
+    if (!mounted) return;
+
+    final quotationToken = quoteResult['data']?['token'] ?? quoteResult['token'];
+    if (quoteResult['error'] != null || quoteResult['apiRequestError'] != null || quotationToken == null) {
+      setState(() {
+        _isProcessing = false;
+        _errorMessage = quoteResult['error']?.toString() ??
+            quoteResult['apiRequestError']?.toString() ??
+            "Couldn't get a rate for this gift right now. Try again shortly.";
+      });
+      return;
+    }
 
     final now = DateTime.now();
     final reference = 'DR-GIFT-${now.millisecondsSinceEpoch}';
     final recipientName = _selectedRecipient!['name']?.toString() ?? 'your contact';
+    final nameParts = recipientName.trim().split(' ');
+    final firstName = nameParts.first;
+    final lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : firstName;
+
+    final payoutResult = await sendData(
+      urlPath: "/api/v1/payouts/send",
+      data: {
+        "token": quotationToken,
+        "firstName": firstName,
+        "lastName": lastName,
+        "phoneNumber": recipientPhone,
+        "sourceWallet": "USD",
+        "amount": amount,
+        "amountType": "SOURCE",
+        "type": "momo",
+        "isBank": false,
+        "isMomo": true,
+        "country": _selectedDestination!.countryCode,
+        "destinationCountry": _selectedDestination!.countryCode,
+        "destinationCurrency": _selectedDestination!.currencyCode,
+        "currency": _selectedDestination!.currencyCode,
+        "transactionRef": reference,
+      },
+      authKey: widget.userAuthKey,
+    );
+
+    if (!mounted) return;
+
+    if (payoutResult['error'] != null || payoutResult['apiRequestError'] != null) {
+      setState(() {
+        _isProcessing = false;
+        _errorMessage = payoutResult['error']?.toString() ??
+            payoutResult['apiRequestError']?.toString() ??
+            "Couldn't send this gift. Please try again.";
+      });
+      return;
+    }
+
     final receipt = {
       'transactionMemberName': recipientName,
       'transactionAmount': amount.toStringAsFixed(2),
@@ -197,6 +265,8 @@ class _GiftsScreenState extends State<GiftsScreen> {
       'dateGroup': customGroup(now),
       'giftOccasion': _selectedOccasion!.name,
       'transactionReference': reference,
+      'destinationCountry': _selectedDestination!.countryName,
+      'destinationCurrency': _selectedDestination!.currencyCode,
       if (_messageController.text.trim().isNotEmpty)
         'giftMessage': _messageController.text.trim(),
     };
@@ -217,6 +287,7 @@ class _GiftsScreenState extends State<GiftsScreen> {
       fields: [
         ReceiptField("To", recipientName),
         ReceiptField("Occasion", _selectedOccasion!.name),
+        ReceiptField("Sent to", _selectedDestination!.countryName),
         if (_messageController.text.trim().isNotEmpty)
           ReceiptField("Message", _messageController.text.trim()),
         ReceiptField("Date", now.toLocal().toString().split('.').first),
@@ -228,6 +299,7 @@ class _GiftsScreenState extends State<GiftsScreen> {
     setState(() {
       _selectedOccasion = null;
       _selectedRecipient = null;
+      _selectedDestination = null;
       _selectedAmount = null;
       _messageController.clear();
       _customAmountController.clear();
@@ -369,18 +441,37 @@ class _GiftsScreenState extends State<GiftsScreen> {
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children: kGiftDestinationCountries
-                      .map((c) => Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(AppRadii.pill),
-                              border: Border.all(color: AppColors.border),
-                            ),
-                            child: Text(c,
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.inkMuted)),
-                          ))
-                      .toList(),
+                  children: kAfricanCountries
+                      .where((c) => c.isEversendCorridor)
+                      .map((c) {
+                    final bool isSelected = _selectedDestination?.countryCode == c.countryCode;
+                    return GestureDetector(
+                      onTap: () => setState(() {
+                        _selectedDestination = c;
+                        _errorMessage = null;
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: isSelected ? AppColors.primary : Colors.white,
+                          borderRadius: BorderRadius.circular(AppRadii.pill),
+                          border: Border.all(color: isSelected ? AppColors.primary : AppColors.border),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(c.flagEmoji, style: TextStyle(fontSize: 13)),
+                            const SizedBox(width: 5),
+                            Text(c.countryName,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: isSelected ? Colors.white : AppColors.inkMuted)),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
                 ),
                 const SizedBox(height: 20),
                 Divider(color: AppColors.divider),

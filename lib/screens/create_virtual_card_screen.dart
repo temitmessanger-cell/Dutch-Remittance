@@ -764,7 +764,13 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
         ),
         _label("FUND FROM"),
         Row(
-          children: ['USD', 'EUR', 'GBP'].map((c) {
+          // Matches the wallet's real fiat currencies (see the home
+          // balance card) — EUR/GBP were placeholder options never
+          // actually held in the wallet. Eversend deducts straight
+          // from whichever of these wallets is chosen and the card
+          // itself is always issued in USD (confirmed:
+          // eversend.readme.io/reference/eversend-virtual-card).
+          children: ['USD', 'XAF'].map((c) {
             final bool isActive = _currency == c;
             return Padding(
               padding: const EdgeInsets.only(right: 8),

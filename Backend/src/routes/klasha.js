@@ -2,7 +2,7 @@ const express = require('express');
 const { klasha } = require('../klashaClient');
 const { requireAppUser } = require('../middleware/requireAppUser');
 const { supabaseAdmin } = require('../supabaseClient');
-const { KLASHA_PAYOUT_ENDPOINTS } = require('../corridors');
+const { KLASHA_PAYOUT_ENDPOINTS, KLASHA_VIRTUAL_ACCOUNT_CURRENCIES } = require('../corridors');
 
 const router = express.Router();
 
@@ -20,6 +20,9 @@ router.get('/banks/:currency', async (req, res, next) => {
     const data = await klasha.get(endpoint.banksPath);
     res.json(data);
   } catch (err) {
+    // Surface the real upstream cause in the server logs (Railway) so
+    // a 502 here isn't a black box. Never leaks to the client response.
+    console.error('[klasha/banks] failed:', err.status, '|', err.message, '|', JSON.stringify(err.details || {}));
     next(err);
   }
 });
@@ -116,8 +119,8 @@ router.post('/virtual-account', requireAppUser, async (req, res, next) => {
       return res.status(400).json({ error: 'currency, email, firstName and lastName are required.' });
     }
     const upperCurrency = currency.toUpperCase();
-    if (!['NGN', 'GHS'].includes(upperCurrency)) {
-      return res.status(400).json({ error: 'Klasha virtual accounts are only available in NGN or GHS.' });
+    if (!KLASHA_VIRTUAL_ACCOUNT_CURRENCIES.includes(upperCurrency)) {
+      return res.status(400).json({ error: `Bank accounts are only available in ${KLASHA_VIRTUAL_ACCOUNT_CURRENCIES.join(' or ')}.` });
     }
 
     const { data: existing } = await supabaseAdmin
@@ -207,6 +210,76 @@ router.get('/virtual-accounts/mine', requireAppUser, async (req, res, next) => {
       .eq('status', 'active');
     if (error) return res.status(500).json({ error: 'Could not load your virtual accounts.' });
     res.json({ virtualAccounts: data || [] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/v1/klasha/wire — KlashaWire (klasha.com/klashawire):
+// business-style wire transfers, funded in African currencies,
+// settling in hard currencies (USD/EUR/CNY/GBP/etc.) to 120+
+// countries, min $500 / max $50,000, 1-4 business days. See
+// corridors.js's KLASHA_WIRE_* constants for the sourced product
+// facts this is built from.
+//
+// ⚠️ UNVERIFIED ENDPOINT — Klasha's public developer docs confirm
+// KlashaWire exists as a product (klasha.com/klashawire,
+// support.klasha.com/en/articles/9385547) but do not publish its
+// API request path or body shape anywhere this session could find.
+// Rather than guess at a path the way crypto.js's withdraw route
+// does (where the REST convention was at least inferable), this
+// route records the wire request in Supabase as 'pending_manual'
+// and does NOT call any Klasha endpoint — so it never silently fails
+// against a wrong URL or, worse, silently succeeds without actually
+// moving money. Before wiring this to a real Klasha call: confirm
+// the endpoint via Klasha support or their Postman collection, then
+// replace the body of this handler with a real klasha.postEncrypted(...)
+// call following the same pattern as the /payout route above.
+router.post('/wire', requireAppUser, async (req, res, next) => {
+  try {
+    const { amount, sourceCurrency, destinationCurrency, destinationCountry, beneficiaryName, beneficiaryDetails, description } = req.body || {};
+    if (!amount || !sourceCurrency || !destinationCurrency || !beneficiaryName) {
+      return res.status(400).json({
+        error: 'amount, sourceCurrency, destinationCurrency and beneficiaryName are required.',
+      });
+    }
+    if (amount < 500) {
+      return res.status(400).json({ error: 'KlashaWire transfers start at $500 (or your currency\'s equivalent).' });
+    }
+    if (amount > 50000) {
+      return res.status(400).json({ error: 'KlashaWire transfers are capped at $50,000 per transaction. Split larger amounts into multiple transfers.' });
+    }
+
+    const { data: wireRequest, error: insertError } = await supabaseAdmin
+      .from('transactions')
+      .insert({
+        user_id: req.user.id,
+        type: 'wire_request',
+        status: 'pending_manual',
+        amount,
+        currency: destinationCurrency,
+        method: 'wire',
+        provider: 'klasha',
+        raw_response: {
+          sourceCurrency,
+          destinationCurrency,
+          destinationCountry,
+          beneficiaryName,
+          beneficiaryDetails,
+          description,
+          note: 'KlashaWire endpoint unconfirmed — recorded for manual processing, not sent to Klasha automatically.',
+        },
+      })
+      .select()
+      .single();
+
+    if (insertError) return res.status(500).json({ error: 'Could not record your wire request. Please try again.' });
+
+    res.json({
+      wireRequest,
+      status: 'pending_manual',
+      message: "Your wire transfer request has been recorded. Our team will process it and follow up — this isn't instant like mobile money or bank payouts.",
+    });
   } catch (err) {
     next(err);
   }

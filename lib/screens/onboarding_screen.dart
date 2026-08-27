@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:dutch_remit/database/hadwin_user_device_info_storage.dart';
@@ -11,14 +12,23 @@ import 'package:dutch_remit/utilities/legal_documents.dart';
 import 'package:dutch_remit/utilities/slide_right_route.dart';
 
 /// The professional landing screen for Dutch Remit — Cameroon's
-/// biggest international remittance and cards platform.
+/// biggest international remittance and cards platform, and a
+/// leading platform across Africa.
 ///
-/// Structure: dark gradient hero (brand + headline + primary CTA sit
-/// above the fold, no scroll needed on any real phone), then a
-/// visual "send preview" card that shows what the product actually
-/// does at a glance, then a features block, corridor callout, and
-/// social-proof/footer. Always shown first for both brand-new and
-/// returning users — see main.dart, which routes here before login.
+/// Design language: a full-bleed photography hero — real cities,
+/// real people across the corridors Dutch Remit serves — behind a
+/// navy scrim, with a slow Ken Burns drift and a crossfading carousel
+/// so the very first frame feels alive rather than a static gradient.
+/// A glass "send preview" card floats on the seam between hero and
+/// body: the juxtaposition of documentary photography with a crisp
+/// financial data card is the signature move — it says "this product
+/// connects real lives across real places," not just "fintech app."
+///
+/// Below the fold: a one-line manifesto set in a serif display face
+/// (the one deliberate typographic risk on this screen — everywhere
+/// else in the app is Manrope-only), then features, corridors, trust
+/// bar and CTAs. Always shown first for both brand-new and returning
+/// users — see main.dart, which routes here before login.
 class OnboardingScreen extends StatefulWidget {
   /// If a user is already logged in (returning user), their data is
   /// carried through so tapping "Get started" opens the app directly
@@ -37,6 +47,34 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   bool _isContinuing = false;
 
   late final AnimationController _entrance;
+  late final AnimationController _kenBurns;
+  late final PageController _heroPageController;
+  Timer? _heroTimer;
+  int _heroIndex = 0;
+
+  // Verified, hotlinkable Unsplash photography spanning the corridors
+  // Dutch Remit serves — a diaspora sender, West/Central African city
+  // life, and market color — with graceful fallback if any URL ever
+  // fails to load (see _HeroPhoto).
+  static const List<_HeroSlide> _heroSlides = [
+    _HeroSlide(
+      url:
+          'https://images.unsplash.com/photo-1523482580672-f109ba8cb9be?auto=format&fit=crop&w=1400&q=80',
+      caption: 'Wherever home is, it stays reachable.',
+    ),
+    _HeroSlide(
+      url: 'https://images.unsplash.com/photo-fGd8paHzN98?auto=format&fit=crop&w=1400&q=80',
+      caption: 'Built for the cities the diaspora calls home.',
+    ),
+    _HeroSlide(
+      url: 'https://images.unsplash.com/photo-SfPOkp6-2eA?auto=format&fit=crop&w=1400&q=80',
+      caption: 'From Abidjan to Douala, money that moves like people do.',
+    ),
+    _HeroSlide(
+      url: 'https://images.unsplash.com/photo-Zjm5QsMVNYM?auto=format&fit=crop&w=1400&q=80',
+      caption: 'Every transfer is somebody\'s Monday made easier.',
+    ),
+  ];
 
   @override
   void initState() {
@@ -45,11 +83,33 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1100),
     )..forward();
+
+    // Slow continuous drift/zoom on the active photo — the "Ken
+    // Burns" effect that keeps the hero feeling alive without being
+    // distracting. Loops forever; direction reverses each cycle.
+    _kenBurns = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 9),
+    )..repeat(reverse: true);
+
+    _heroPageController = PageController();
+    _heroTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted) return;
+      _heroIndex = (_heroIndex + 1) % _heroSlides.length;
+      _heroPageController.animateToPage(
+        _heroIndex,
+        duration: const Duration(milliseconds: 900),
+        curve: Curves.easeInOutCubic,
+      );
+    });
   }
 
   @override
   void dispose() {
     _entrance.dispose();
+    _kenBurns.dispose();
+    _heroTimer?.cancel();
+    _heroPageController.dispose();
     super.dispose();
   }
 
@@ -123,205 +183,273 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     const Color heroTop = Color(0xFF0A1B47);
     const Color heroBottom = Color(0xFF163172);
     const Color gold = Color(0xFFF5B841);
-    const Color surface = Color(0xFFF8FAFC);
+    const Color surface = Color(0xFFFDFBF6);
     const Color ink = Color(0xFF0F172A);
     const Color inkMuted = Color(0xFF475569);
+
+    final screenHeight = MediaQuery.of(context).size.height;
+    final heroHeight = (screenHeight * 0.62).clamp(460.0, 640.0);
 
     return Scaffold(
       backgroundColor: surface,
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // ==================== HERO ====================
-            Container(
+            // ==================== PHOTOGRAPHY HERO ====================
+            SizedBox(
+              height: heroHeight,
               width: double.infinity,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [heroTop, heroBottom],
-                ),
-              ),
-              child: SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // -- Top bar: wordmark + tiny country pill --
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Rotating, slowly-zooming photo carousel.
+                  PageView.builder(
+                    controller: _heroPageController,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _heroSlides.length,
+                    onPageChanged: (i) => _heroIndex = i,
+                    itemBuilder: (context, i) {
+                      return AnimatedBuilder(
+                        animation: _kenBurns,
+                        builder: (context, child) {
+                          final scale = 1.05 + (_kenBurns.value * 0.07);
+                          return Transform.scale(scale: scale, child: child);
+                        },
+                        child: _HeroPhoto(url: _heroSlides[i].url),
+                      );
+                    },
+                  ),
+                  // Navy scrim — deepens toward the bottom so the
+                  // floating card and text always stay legible
+                  // regardless of the photo underneath.
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Color(0xCC0A1B47),
+                          Color(0x990A1B47),
+                          Color(0xE60A1B47),
+                          Color(0xFF0A1B47),
+                        ],
+                        stops: [0.0, 0.35, 0.8, 1.0],
+                      ),
+                    ),
+                  ),
+                  SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
+                          // -- Top bar: wordmark + tiny country pill --
                           Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Container(
-                                width: 36,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  color: gold,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                alignment: Alignment.center,
-                                child: Text('D',
-                                    style: GoogleFonts.manrope(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.w800,
-                                        color: heroTop)),
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 36,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: gold,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text('D',
+                                        style: GoogleFonts.manrope(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.w800,
+                                            color: heroTop)),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text('Dutch Remit',
+                                      style: GoogleFonts.manrope(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.white)),
+                                ],
                               ),
-                              const SizedBox(width: 10),
-                              Text('Dutch Remit',
-                                  style: GoogleFonts.manrope(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.white)),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.10),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                      color: Colors.white.withOpacity(0.15)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text('🇨🇲', style: TextStyle(fontSize: 14)),
+                                    const SizedBox(width: 6),
+                                    Text('Cameroon',
+                                        style: GoogleFonts.manrope(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.white)),
+                                  ],
+                                ),
+                              ),
                             ],
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.10),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                  color: Colors.white.withOpacity(0.15)),
+                          const SizedBox(height: 30),
+
+                          // -- Eyebrow --
+                          _fadeSlide(
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: gold.withOpacity(0.16),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                'CAMEROON\'S #1 · AFRICA\'S LEADING PLATFORM',
+                                style: GoogleFonts.manrope(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.8,
+                                    color: gold),
+                              ),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text('🇨🇲', style: TextStyle(fontSize: 14)),
-                                const SizedBox(width: 6),
-                                Text('Cameroon',
+                            0.0,
+                            0.4,
+                          ),
+                          const SizedBox(height: 18),
+
+                          // -- Headline --
+                          _fadeSlide(
+                            Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: 'Send money home.\n',
                                     style: GoogleFonts.manrope(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.white)),
-                              ],
+                                        fontSize: 32,
+                                        fontWeight: FontWeight.w800,
+                                        height: 1.12,
+                                        color: Colors.white),
+                                  ),
+                                  TextSpan(
+                                    text: 'Spend anywhere.',
+                                    style: GoogleFonts.manrope(
+                                        fontSize: 32,
+                                        fontWeight: FontWeight.w800,
+                                        height: 1.12,
+                                        color: gold),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            0.12,
+                            0.55,
+                          ),
+                          const SizedBox(height: 12),
+
+                          // -- Rotating caption tied to active photo --
+                          _fadeSlide(
+                            SizedBox(
+                              height: 20,
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 500),
+                                child: Text(
+                                  _heroSlides[_heroIndex].caption,
+                                  key: ValueKey(_heroIndex),
+                                  style: GoogleFonts.manrope(
+                                      fontSize: 13.5,
+                                      fontStyle: FontStyle.italic,
+                                      color: Colors.white.withOpacity(0.78)),
+                                ),
+                              ),
+                            ),
+                            0.24,
+                            0.65,
+                          ),
+                          const SizedBox(height: 22),
+
+                          // -- Primary CTA --
+                          _fadeSlide(
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _isContinuing ? null : _startSending,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: gold,
+                                  foregroundColor: heroTop,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(vertical: 18),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14)),
+                                ),
+                                child: _isContinuing
+                                    ? SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2.6, color: heroTop),
+                                      )
+                                    : Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text('Get started',
+                                              style: GoogleFonts.manrope(
+                                                  fontSize: 16.5,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: heroTop)),
+                                          const SizedBox(width: 8),
+                                          Icon(Icons.arrow_forward_rounded,
+                                              color: heroTop, size: 20),
+                                        ],
+                                      ),
+                              ),
+                            ),
+                            0.36,
+                            0.8,
+                          ),
+                          const SizedBox(height: 10),
+                          Center(
+                            child: TextButton(
+                              onPressed: _getDocs,
+                              style: TextButton.styleFrom(
+                                  foregroundColor: Colors.white.withOpacity(0.85)),
+                              child: Text('How it works',
+                                  style: GoogleFonts.manrope(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      decoration: TextDecoration.underline)),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+
+                          // -- Carousel dots --
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(
+                              _heroSlides.length,
+                              (i) => AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                margin: const EdgeInsets.symmetric(horizontal: 3),
+                                width: i == _heroIndex ? 18 : 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: i == _heroIndex
+                                      ? gold
+                                      : Colors.white.withOpacity(0.35),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 36),
-
-                      // -- Eyebrow --
-                      _fadeSlide(
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: gold.withOpacity(0.16),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            'CAMEROON\'S #1 REMITTANCE PLATFORM',
-                            style: GoogleFonts.manrope(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1.2,
-                                color: gold),
-                          ),
-                        ),
-                        0.0,
-                        0.4,
-                      ),
-                      const SizedBox(height: 20),
-
-                      // -- Headline --
-                      _fadeSlide(
-                        Text.rich(
-                          TextSpan(
-                            children: [
-                              TextSpan(
-                                text: 'Send money home.\n',
-                                style: GoogleFonts.manrope(
-                                    fontSize: 34,
-                                    fontWeight: FontWeight.w800,
-                                    height: 1.1,
-                                    color: Colors.white),
-                              ),
-                              TextSpan(
-                                text: 'Spend anywhere.',
-                                style: GoogleFonts.manrope(
-                                    fontSize: 34,
-                                    fontWeight: FontWeight.w800,
-                                    height: 1.1,
-                                    color: gold),
-                              ),
-                            ],
-                          ),
-                        ),
-                        0.12,
-                        0.55,
-                      ),
-                      const SizedBox(height: 14),
-                      _fadeSlide(
-                        Text(
-                          'Instant transfers across Africa and virtual cards for online spending — trusted by Cameroonians worldwide.',
-                          style: GoogleFonts.manrope(
-                              fontSize: 15,
-                              height: 1.5,
-                              color: Colors.white.withOpacity(0.80)),
-                        ),
-                        0.24,
-                        0.65,
-                      ),
-                      const SizedBox(height: 26),
-
-                      // -- Primary CTA --
-                      _fadeSlide(
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: _isContinuing ? null : _startSending,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: gold,
-                              foregroundColor: heroTop,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(vertical: 18),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14)),
-                            ),
-                            child: _isContinuing
-                                ? SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2.6, color: heroTop),
-                                  )
-                                : Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Text('Get started',
-                                          style: GoogleFonts.manrope(
-                                              fontSize: 16.5,
-                                              fontWeight: FontWeight.w800,
-                                              color: heroTop)),
-                                      const SizedBox(width: 8),
-                                      Icon(Icons.arrow_forward_rounded,
-                                          color: heroTop, size: 20),
-                                    ],
-                                  ),
-                          ),
-                        ),
-                        0.36,
-                        0.8,
-                      ),
-                      const SizedBox(height: 12),
-                      Center(
-                        child: TextButton(
-                          onPressed: _getDocs,
-                          style: TextButton.styleFrom(
-                              foregroundColor: Colors.white.withOpacity(0.85)),
-                          child: Text('How it works',
-                              style: GoogleFonts.manrope(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  decoration: TextDecoration.underline)),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
 
@@ -340,6 +468,27 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               0.5,
               1.0,
             ),
+
+            // ==================== MANIFESTO ====================
+            // The one deliberate typographic risk on this screen — a
+            // serif display line, set apart from the Manrope-only
+            // voice everywhere else, giving the product a moment of
+            // conviction rather than another feature callout.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(28, 8, 28, 4),
+              child: Text(
+                '"Distance was never the problem. The banks were."',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.playfairDisplay(
+                  fontSize: 21,
+                  fontStyle: FontStyle.italic,
+                  fontWeight: FontWeight.w600,
+                  height: 1.4,
+                  color: heroTop,
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
 
             // ==================== FEATURES ====================
             Padding(
@@ -363,7 +512,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     accent: heroBottom,
                     title: 'Instant remittances',
                     subtitle:
-                        'Mobile money and bank transfers to 10 African countries — Cameroon, Nigeria, Kenya and more, in minutes not days.',
+                        'Mobile money and bank transfers across Africa — Cameroon, Nigeria, Kenya and more, in minutes not days.',
                   ),
                   const SizedBox(height: 14),
                   _FeatureRow(
@@ -416,7 +565,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     ],
                   ),
                   const SizedBox(height: 10),
-                  Text('Send to 10 African countries',
+                  Text('Send across Africa and beyond',
                       style: GoogleFonts.manrope(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
@@ -453,9 +602,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _StatTile(value: '10+', label: 'Countries', color: heroBottom),
+                      _StatTile(value: '20+', label: 'Currencies', color: heroBottom),
                       Container(width: 1, height: 40, color: const Color(0xFFCBD5E1)),
-                      _StatTile(value: '12', label: 'Currencies', color: heroBottom),
+                      _StatTile(value: '120+', label: 'Countries', color: heroBottom),
                       Container(width: 1, height: 40, color: const Color(0xFFCBD5E1)),
                       _StatTile(value: '<5m', label: 'Avg. delivery', color: heroBottom),
                     ],
@@ -503,133 +652,39 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 }
 
-/// The product-preview card that anchors the whole screen: shows a
-/// mock "You send 100 USD → They receive 62,650 XAF" transfer, so a
-/// first-time visitor immediately sees what the product does.
-class _SendPreviewCard extends StatelessWidget {
-  final Color heroTop;
-  final Color gold;
-  final Color ink;
-  final Color inkMuted;
+/// A single hero photo slide: url + the caption shown while it's active.
+class _HeroSlide {
+  final String url;
+  final String caption;
+  const _HeroSlide({required this.url, required this.caption});
+}
 
-  const _SendPreviewCard(
-      {required this.heroTop,
-      required this.gold,
-      required this.ink,
-      required this.inkMuted});
+/// Renders one hero photo with a loading shimmer and a graceful
+/// gradient fallback if the network image ever fails — the hero must
+/// never show a broken-image icon or blank white frame.
+class _HeroPhoto extends StatelessWidget {
+  final String url;
+  const _HeroPhoto({required this.url});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: heroTop.withOpacity(0.08),
-            blurRadius: 30,
-            offset: const Offset(0, 10),
+    return Image.network(
+      url,
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, progress) {
+        if (progress == null) return child;
+        return const DecoratedBox(
+          decoration: BoxDecoration(color: Color(0xFF0A1B47)),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) => const DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF0A1B47), Color(0xFF163172)],
           ),
-        ],
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFECFDF5),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                          color: Color(0xFF1FB17A), shape: BoxShape.circle),
-                    ),
-                    const SizedBox(width: 6),
-                    Text('LIVE RATE',
-                        style: GoogleFonts.manrope(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.2,
-                            color: const Color(0xFF1FB17A))),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              Text('Preview',
-                  style: GoogleFonts.manrope(
-                      fontSize: 11, fontWeight: FontWeight.w600, color: inkMuted)),
-            ],
-          ),
-          const SizedBox(height: 18),
-          _AmountRow(
-            label: 'You send',
-            amount: '100.00',
-            currency: 'USD',
-            flag: '🇺🇸',
-            ink: ink,
-            inkMuted: inkMuted,
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              children: [
-                Expanded(child: Container(height: 1, color: const Color(0xFFE2E8F0))),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: heroTop,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.arrow_downward_rounded,
-                        size: 14, color: Colors.white),
-                  ),
-                ),
-                Expanded(child: Container(height: 1, color: const Color(0xFFE2E8F0))),
-              ],
-            ),
-          ),
-          _AmountRow(
-            label: 'They receive',
-            amount: '62,650',
-            currency: 'XAF',
-            flag: '🇨🇲',
-            ink: ink,
-            inkMuted: inkMuted,
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.bolt_rounded, size: 16, color: gold),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('Arrives in under 5 minutes · Mobile money',
-                      style: GoogleFonts.manrope(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: inkMuted)),
-                ),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -818,6 +873,138 @@ class _StatTile extends StatelessWidget {
                 fontWeight: FontWeight.w600,
                 color: const Color(0xFF475569))),
       ],
+    );
+  }
+}
+
+/// The product-preview card that anchors the whole screen: shows a
+/// mock "You send 100 USD → They receive 62,650 XAF" transfer, so a
+/// first-time visitor immediately sees what the product does.
+class _SendPreviewCard extends StatelessWidget {
+  final Color heroTop;
+  final Color gold;
+  final Color ink;
+  final Color inkMuted;
+
+  const _SendPreviewCard(
+      {required this.heroTop,
+      required this.gold,
+      required this.ink,
+      required this.inkMuted});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: heroTop.withOpacity(0.16),
+            blurRadius: 34,
+            offset: const Offset(0, 14),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                          color: Color(0xFF1FB17A), shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 6),
+                    Text('LIVE RATE',
+                        style: GoogleFonts.manrope(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.2,
+                            color: const Color(0xFF1FB17A))),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              Text('Preview',
+                  style: GoogleFonts.manrope(
+                      fontSize: 11, fontWeight: FontWeight.w600, color: inkMuted)),
+            ],
+          ),
+          const SizedBox(height: 18),
+          _AmountRow(
+            label: 'You send',
+            amount: '100.00',
+            currency: 'USD',
+            flag: '🇺🇸',
+            ink: ink,
+            inkMuted: inkMuted,
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
+              children: [
+                Expanded(child: Container(height: 1, color: const Color(0xFFE2E8F0))),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: heroTop,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.arrow_downward_rounded,
+                        size: 14, color: Colors.white),
+                  ),
+                ),
+                Expanded(child: Container(height: 1, color: const Color(0xFFE2E8F0))),
+              ],
+            ),
+          ),
+          _AmountRow(
+            label: 'They receive',
+            amount: '62,650',
+            currency: 'XAF',
+            flag: '🇨🇲',
+            ink: ink,
+            inkMuted: inkMuted,
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.bolt_rounded, size: 16, color: gold),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Arrives in under 5 minutes · Mobile money',
+                      style: GoogleFonts.manrope(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: inkMuted)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

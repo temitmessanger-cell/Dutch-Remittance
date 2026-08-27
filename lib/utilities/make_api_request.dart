@@ -128,6 +128,62 @@ Future<Map<String, dynamic>> sendData(
   }
 }
 
+/// PATCH request — mirrors sendData's shape/error-handling exactly,
+/// for endpoints that update a resource rather than create one (e.g.
+/// marking a notification read via PATCH /api/v1/notifications/:id).
+Future<Map<String, dynamic>> patchData(
+    {required String urlPath,
+    required Map<String, dynamic> data,
+    String? authKey}) async {
+  String backendServiceHost = "${ApiConstants.baseUrl}" + urlPath;
+  try {
+    final response = await http.patch(
+      Uri.parse(backendServiceHost),
+      headers: <String, String>{
+        'Content-Type': 'application/json',
+        if (authKey != null) 'Authorization': authKey
+      },
+      body: jsonEncode(data),
+    ).timeout(const Duration(seconds: 10), onTimeout: () {
+      throw Exception('Request timed out');
+    });
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      if (response.body.isEmpty) {
+        return {'apiRequestError': 'empty response from server'} as Map<String, dynamic>;
+      }
+      try {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      } catch (e) {
+        return {
+          'apiRequestError': 'invalid JSON response',
+          'responseBody': response.body,
+        };
+      }
+    }
+
+    Map<String, dynamic> decoded = {};
+    try {
+      final parsed = jsonDecode(response.body);
+      if (parsed is Map<String, dynamic>) decoded = parsed;
+    } catch (_) {}
+
+    return {
+      ...decoded,
+      'apiRequestError': 'status code ${response.statusCode}',
+      'statusCode': response.statusCode,
+      'responseBody': response.body,
+    };
+  } catch (e) {
+    final message = e.toString().toLowerCase().contains('failed to fetch') ||
+            e.toString().toLowerCase().contains('timed out') ||
+            e.toString().toLowerCase().contains('socketexception')
+        ? 'We couldn\'t reach the server. Please check your connection and try again.'
+        : 'Something went wrong. Please try again.';
+    return {'apiRequestError': message};
+  }
+}
+
 Future<int> checkUrlValidity(String url) async {
   try {
     final response = await http

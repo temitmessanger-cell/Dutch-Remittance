@@ -18,8 +18,8 @@
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
 
   <!-- SEO: primary meta tags -->
-  <meta name="description" content="Dutch Remit is Africa’s biggest cross-border money transfer platform, connecting 15+ African countries with 120+ countries worldwide for international transfers and payments.">
-  <meta name="keywords" content="Dutch Remit, cross-border transfers, African remittances, international money transfer, send money abroad, receive money internationally, currency exchange, global payments">
+  <meta name="description" content="Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform, and one of Africa's leading platforms for sending money and spending online — with Europe, UAE and Asia coverage expanding, mobile money and bank payouts across 120+ countries, 20+ currencies, backed by global fintech infrastructure.">
+  <meta name="keywords" content="Dutch Remit, Cameroon money transfer, send money to Cameroon, African remittances, international money transfer, send money abroad, receive money internationally, currency exchange, global payments, mobile money Cameroon, virtual card Cameroon, send money to UAE, send money to Dubai, send money to Europe, send money to Asia">
   <meta name="author" content="Dutch Remit">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="https://dutchremit.dubiabank.com/">
@@ -27,16 +27,16 @@
   <!-- Open Graph / Facebook, LinkedIn, etc. link previews -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://dutchremit.dubiabank.com/">
-  <meta property="og:title" content="Dutch Remit — Africa’s Biggest Cross-Border Money Transfer Platform">
-  <meta property="og:description" content="Dutch Remit is Africa’s biggest cross-border money transfer and international remittance platform — connecting 15+ African countries with 120+ countries worldwide for international transfers and payments.">
+  <meta property="og:title" content="Dutch Remit — Cameroon's Biggest Remittance & Cards Platform, Africa's Leading Choice">
+  <meta property="og:description" content="Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform, and one of Africa's leading platforms — with Europe, UAE and Asia coverage expanding, mobile money and bank payouts across 120+ countries, 20+ currencies, backed by global fintech infrastructure.">
   <meta property="og:image" content="https://dutchremit.dubiabank.com/icons/Icon-512.png">
   <meta property="og:site_name" content="Dutch Remit">
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:url" content="https://dutchremit.dubiabank.com/">
-  <meta name="twitter:title" content="Dutch Remit — Africa’s Biggest Cross-Border Money Transfer Platform">
-  <meta name="twitter:description" content="Dutch Remit is Africa’s biggest cross-border money transfer and international remittance platform, connecting 15+ African countries with 120+ countries worldwide.">
+  <meta name="twitter:title" content="Dutch Remit — Cameroon's Biggest Remittance & Cards Platform, Africa's Leading Choice">
+  <meta name="twitter:description" content="Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform, and one of Africa's leading platforms — mobile money and bank payouts across 120+ countries, 20+ currencies.">
   <meta name="twitter:image" content="https://dutchremit.dubiabank.com/icons/Icon-512.png">
 
   <!-- Structured data: tells search engines this is a financial service -->
@@ -49,19 +49,23 @@
         "name": "Dutch Remit",
         "url": "https://dutchremit.dubiabank.com/",
         "logo": "https://dutchremit.dubiabank.com/icons/Icon-512.png",
-        "sameAs": []
+        "sameAs": [],
+        "areaServed": {
+          "@type": "Country",
+          "name": "Cameroon"
+        }
       },
       {
         "@type": "WebSite",
         "url": "https://dutchremit.dubiabank.com/",
         "name": "Dutch Remit",
-        "description": "Dutch Remit is Africa’s biggest cross-border money transfer platform, connecting 15+ African countries with 120+ countries worldwide for international transfers and payments."
+        "description": "Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform and one of Africa's leading platforms for sending money and spending online."
       },
       {
         "@type": "FinancialService",
         "name": "Dutch Remit",
-        "description": "Dutch Remit is Africa’s biggest cross-border money transfer and international remittance platform — connecting 15+ African countries with 120+ countries worldwide for international transfers and payments.",
-        "areaServed": ["Africa", "Worldwide"]
+        "description": "Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform, and one of Africa's leading platforms — connecting Cameroon and the wider African diaspora with mobile money and bank payouts across 120+ countries and 20+ currencies, with Europe, UAE and Asia coverage expanding, backed by global fintech infrastructure (Eversend, Klasha).",
+        "areaServed": ["Cameroon", "Africa", "Europe", "United Arab Emirates", "Asia", "Worldwide"]
       }
     ]
   }
@@ -76,15 +80,20 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png">
 
-  <title>Dutch Remit — Africa’s Biggest Cross-Border Money Transfer Platform</title>
+  <title>Dutch Remit — Cameroon's Biggest Remittance & Cards Platform, Africa's Leading Choice</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" type="text/css" href="splash/style.css">
   <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
   <script src="splash/splash.js"></script>
 
-  <!-- Required for plaid_flutter to work on web — without this, opening
-       Plaid Link will fail silently in the browser. -->
-  <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+  <!-- Note: the plaid_flutter package and its Plaid Link script were
+       previously required here, but the entire Plaid bank-linking
+       integration (services/plaid_service.dart, link_bank_account_screen.dart,
+       plaid_bank_transfer_screen.dart) was confirmed dead code — never
+       referenced by any live screen — during this app's full platform
+       audit. The plaid.com script tag is removed accordingly; if the
+       plaid_flutter package is also dropped from pubspec.yaml, nothing
+       here depended on it.
 </head>
 <body>
   <style>
@@ -209,12 +218,14 @@
       <div id="seo-shell-spinner" role="status" aria-label="Loading"></div>
       <p id="seo-shell-status">Loading your account…</p>
       <h1>Dutch Remit</h1>
-      <p>Dutch Remit is a cross-border money transfer and international remittance platform connecting African communities with global payment services.</p>
-      <p>Users can send money, manage transfers, track payments, and access financial services through a secure digital experience designed for international transfers and account-based payments.</p>
+      <p>Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform, and one of Africa's leading platforms — connecting Cameroon and the wider African diaspora with money transfer and card services across Europe, the UAE and Asia, with coverage expanding.</p>
+      <p>Users can send money, manage transfers, track payments, and access financial services through a secure digital experience designed for international transfers and account-based payments — with real, live exchange rates, mobile money and bank payouts across 120+ countries and 20+ currencies, backed by global fintech infrastructure.</p>
       <ul>
-        <li>International money transfer services</li>
-        <li>Cross-border payments across multiple countries</li>
-        <li>Secure remittance and transfer experience</li>
+        <li>Cameroon's biggest cross-border remittance and virtual card platform</li>
+        <li>International money transfer and card services across 120+ countries</li>
+        <li>20+ currencies, including local money like XAF, NGN and GHS</li>
+        <li>Cross-border payments reaching Europe, the UAE and Asia</li>
+        <li>Secure remittance and transfer experience for the African diaspora</li>
       </ul>
       <p id="seo-shell-links"><a href="/about">About</a> &middot; <a href="/faq">FAQ</a> &middot; <a href="/terms">Terms of Use</a> &middot; <a href="/privacy">Privacy Policy</a></p>
     </div>

@@ -449,6 +449,8 @@ where dutch_remit_id is null;
 create table if not exists public.virtual_accounts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles (id) on delete cascade,
+  -- Keep in lockstep with KLASHA_VIRTUAL_ACCOUNT_CURRENCIES in
+  -- Backend/src/corridors.js — both must change together.
   currency text not null check (currency in ('NGN', 'GHS')),
   account_number text,
   account_name text,
@@ -479,6 +481,14 @@ alter table public.transactions add constraint transactions_type_check check (
   type in (
     'deposit', 'payout', 'wallet_transfer', 'card_fund', 'card_withdraw',
     'exchange', 'card_creation_fee', 'card_link_fee', 'card_transfer',
-    'virtual_account_fee'
+    'virtual_account_fee', 'crypto_withdrawal', 'wire_request'
   )
 );
+
+-- fee_charged on transactions: records what Dutch Remit's own markup
+-- charged on top of the provider's fee for a given transaction (see
+-- crypto.js POST /withdraw, which is the first route to populate
+-- this). Existing rows default to null — historical transactions
+-- from before this column existed simply don't carry a fee
+-- breakdown, which is honest since none was computed at the time.
+alter table public.transactions add column if not exists fee_charged numeric;

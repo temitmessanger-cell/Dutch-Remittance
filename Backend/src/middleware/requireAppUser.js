@@ -103,4 +103,52 @@ async function requireAppUser(req, res, next) {
   next();
 }
 
-module.exports = { requireAppUser };
+/// Same identity resolution as requireAppUser, but never blocks the
+/// request — if no token is present (or resolution fails for any
+/// reason), req.user is simply left undefined and the route
+/// continues as a guest. For endpoints like quotation lookups that
+/// are useful to browse without an account, but that benefit from
+/// knowing who's asking when they are logged in (e.g. checking
+/// whether they already have a bank account for a Klasha-fallback
+/// currency — see paymentRouter.js).
+async function optionalAppUser(req, res, next) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader || null;
+
+  if (!token) {
+    return next();
+  }
+
+  try {
+    const { data: supabaseUser } = await supabaseAdmin.auth.getUser(token);
+    if (supabaseUser?.user) {
+      const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('auth_user_id', supabaseUser.user.id)
+        .maybeSingle();
+      if (profile) {
+        req.user = { id: profile.id };
+      }
+      return next();
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const { data: existingSession } = await supabaseAdmin
+      .from('legacy_sessions')
+      .select('profile_id')
+      .eq('token_hash', tokenHash)
+      .maybeSingle();
+    if (existingSession) {
+      req.user = { id: existingSession.profile_id };
+    }
+    next();
+  } catch (_) {
+    // Any resolution failure here degrades to "treat as guest" rather
+    // than blocking the request — this middleware's whole point is to
+    // never be the reason a quotation lookup fails.
+    next();
+  }
+}
+
+module.exports = { requireAppUser, optionalAppUser };

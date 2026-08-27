@@ -112,26 +112,51 @@ class _WalletScreenState extends State<WalletScreen> {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-          child: Row(
-            children: [
-              _circleAction(
-                icon: Icons.add_rounded,
-                label: "Add card",
-                onTap: goToAddCardScreen,
-              ),
-              const SizedBox(width: 16),
-              _circleAction(
-                icon: Icons.info_outline_rounded,
-                label: "Card details",
-                onTap: () => _showCardDetails(featured),
-              ),
-              const SizedBox(width: 16),
-              _circleAction(
-                icon: Icons.delete_outline_rounded,
-                label: "Remove card",
-                onTap: () => _deleteCardDialogBox(featured['cardNumber']),
-              ),
-            ],
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                SizedBox(
+                    width: 72,
+                    child: _circleAction(
+                      icon: Icons.add_rounded,
+                      label: "Add card",
+                      onTap: goToAddCardScreen,
+                    )),
+                const SizedBox(width: 16),
+                SizedBox(
+                    width: 72,
+                    child: _circleAction(
+                      icon: Icons.add_card_rounded,
+                      label: "Fund card",
+                      onTap: () => _showFundWithdrawSheet(featured, isFunding: true),
+                    )),
+                const SizedBox(width: 16),
+                SizedBox(
+                    width: 72,
+                    child: _circleAction(
+                      icon: Icons.remove_circle_outline_rounded,
+                      label: "Withdraw",
+                      onTap: () => _showFundWithdrawSheet(featured, isFunding: false),
+                    )),
+                const SizedBox(width: 16),
+                SizedBox(
+                    width: 72,
+                    child: _circleAction(
+                      icon: Icons.info_outline_rounded,
+                      label: "Card details",
+                      onTap: () => _showCardDetails(featured),
+                    )),
+                const SizedBox(width: 16),
+                SizedBox(
+                    width: 72,
+                    child: _circleAction(
+                      icon: Icons.delete_outline_rounded,
+                      label: "Remove card",
+                      onTap: () => _deleteCardDialogBox(featured['cardNumber']),
+                    )),
+              ],
+            ),
           ),
         ),
         if (remaining.isNotEmpty) ...[
@@ -281,31 +306,29 @@ class _WalletScreenState extends State<WalletScreen> {
     required String label,
     required VoidCallback onTap,
   }) {
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: AppColors.surfaceAlt,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 22, color: AppColors.primary),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceAlt,
+              shape: BoxShape.circle,
             ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink),
-            ),
-          ],
-        ),
+            child: Icon(icon, size: 22, color: AppColors.primary),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink),
+          ),
+        ],
       ),
     );
   }
@@ -551,6 +574,156 @@ class _WalletScreenState extends State<WalletScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showFundWithdrawSheet(Map<String, dynamic> card, {required bool isFunding}) {
+    final amountController = TextEditingController();
+    // The card's own currency (Eversend cards are USD) — fund/withdraw
+    // moves between this currency's wallet and the card, never a
+    // silently different one.
+    final currency = card['currency']?.toString() ?? 'USD';
+    final cardId = card['cardId']?.toString() ?? card['id']?.toString();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.lg))),
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
+        child: StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            bool isSubmitting = false;
+            String? errorMessage;
+
+            Future<void> submit() async {
+              if (cardId == null) {
+                setSheetState(() => errorMessage = "Couldn't find this card's ID. Try reopening the app.");
+                return;
+              }
+              final amount = double.tryParse(amountController.text.trim());
+              if (amount == null || amount <= 0) {
+                setSheetState(() => errorMessage = "Enter a valid amount.");
+                return;
+              }
+
+              setSheetState(() {
+                isSubmitting = true;
+                errorMessage = null;
+              });
+
+              final result = await sendData(
+                urlPath: isFunding ? "/api/v1/cards/fund" : "/api/v1/cards/withdraw",
+                data: {"cardId": cardId, "amount": amount, "currency": currency},
+                authKey: widget.userAuthKey,
+              );
+
+              if (!mounted) return;
+
+              if (result['error'] != null || result['apiRequestError'] != null) {
+                setSheetState(() {
+                  isSubmitting = false;
+                  errorMessage = result['error']?.toString() ??
+                      result['apiRequestError']?.toString() ??
+                      "Something went wrong. Please try again.";
+                });
+                return;
+              }
+
+              Navigator.of(sheetContext).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(isFunding
+                      ? "Card funded with \$${amount.toStringAsFixed(2)}."
+                      : "\$${amount.toStringAsFixed(2)} withdrawn from your card."),
+                  backgroundColor: AppColors.success,
+                ),
+              );
+              // The wallet balance changed on the backend — refresh
+              // this screen's card list so the new balance is reflected
+              // rather than showing a stale number until the next
+              // manual refresh.
+              setState(() {
+                _cardsFuture = _initAndLoadCards();
+              });
+            }
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(isFunding ? "Fund card" : "Withdraw from card",
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppColors.ink)),
+                  const SizedBox(height: 4),
+                  Text(
+                    isFunding
+                        ? "Move money from your $currency wallet onto this card."
+                        : "Move money from this card back into your $currency wallet.",
+                    style: TextStyle(fontSize: 13, color: AppColors.inkMuted, height: 1.4),
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceAlt,
+                      borderRadius: BorderRadius.circular(AppRadii.md),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: amountController,
+                            keyboardType: TextInputType.numberWithOptions(decimal: true),
+                            autofocus: true,
+                            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.ink),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              border: InputBorder.none,
+                              hintText: '0',
+                            ),
+                          ),
+                        ),
+                        Text(currency,
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.primary)),
+                      ],
+                    ),
+                  ),
+                  if (errorMessage != null) ...[
+                    const SizedBox(height: 12),
+                    Text(errorMessage!, style: TextStyle(color: AppColors.danger, fontSize: 13)),
+                  ],
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: isSubmitting ? null : submit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.md)),
+                      ),
+                      child: isSubmitting
+                          ? SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+                          : Text(isFunding ? "Fund card" : "Withdraw",
+                              style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }

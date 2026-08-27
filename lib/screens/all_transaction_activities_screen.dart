@@ -26,10 +26,18 @@ class AllTransactionActivities extends StatefulWidget {
 class AllTransactionActivitiesState extends State<AllTransactionActivities> {
   List<dynamic> allTransactions = [];
   bool isLoadingTransactions = true;
-  List<bool> _activeToggleMenu = [true, false, false];
+  // 0 = All, 1 = Sent, 2 = Receive, 3 = Notifications — four separate
+  // upper navs, not the three-way Sent/Received toggle this used to
+  // be, so Notifications gets its own real tab rather than being
+  // folded into the transaction filter.
+  List<bool> _activeToggleMenu = [true, false, false, false];
   Map<String, dynamic>? error = null;
   late TextEditingController activitySearch;
-  
+
+  List<Map<String, dynamic>> _notifications = [];
+  bool _isLoadingNotifications = true;
+  String? _notificationsError;
+
   Widget appBarTitle =
       Text("Payments", style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700));
   Icon actionIcon = Icon(
@@ -41,9 +49,46 @@ class AllTransactionActivitiesState extends State<AllTransactionActivities> {
     super.initState();
 
     getTransactionsFromApi();
-    
+    _loadNotifications();
+
     activitySearch = TextEditingController();
     
+  }
+
+  Future<void> _loadNotifications() async {
+    setState(() {
+      _isLoadingNotifications = true;
+      _notificationsError = null;
+    });
+    final result =
+        await getData(urlPath: "/api/v1/notifications", authKey: widget.userAuthKey);
+    if (!mounted) return;
+    if (result.containsKey('apiRequestError') || result['error'] != null) {
+      setState(() {
+        _isLoadingNotifications = false;
+        _notificationsError =
+            result['error']?.toString() ?? result['apiRequestError'].toString();
+      });
+      return;
+    }
+    final list = result['notifications'] is List
+        ? List<Map<String, dynamic>>.from(
+            (result['notifications'] as List).map((n) => Map<String, dynamic>.from(n)))
+        : <Map<String, dynamic>>[];
+    setState(() {
+      _notifications = list;
+      _isLoadingNotifications = false;
+    });
+  }
+
+  Future<void> _markNotificationRead(Map<String, dynamic> notification) async {
+    if (notification['is_read'] == true) return;
+    setState(() => notification['is_read'] = true);
+    await patchData(
+      urlPath: "/api/v1/notifications/${notification['id']}",
+      data: {"isRead": true},
+      authKey: widget.userAuthKey,
+    );
   }
 
   void _updateTransactions() {
@@ -175,51 +220,79 @@ class AllTransactionActivitiesState extends State<AllTransactionActivities> {
             height: 96,
           ),
           Container(
-          
-            decoration: BoxDecoration(
-                color: AppColors.surfaceAlt,
-                borderRadius: BorderRadius.circular(10)),
-            child: ToggleButtons(
-              borderRadius: BorderRadius.circular(10),
-              color: AppColors.textMuted,
-              fillColor: AppColors.primary,
-              selectedColor: Colors.white,
-             
-              renderBorder: false,
-              children: <Widget>[
-                Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 15),
-                    child: Text(
-                      "All",
-                      style: TextStyle(fontSize: 16),
-                    )),
-                Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 15),
-                    child: Text(
-                      "Sent",
-                      style: TextStyle(fontSize: 16),
-                    )),
-                Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 15),
-                    child: Text(
-                      "Received",
-                      style: TextStyle(fontSize: 16),
-                    )),
-              ],
-              onPressed: (int index) {
-                setState(() {
-                  for (int buttonIndex = 0;
-                      buttonIndex < _activeToggleMenu.length;
-                      buttonIndex++) {
-                    if (buttonIndex == index) {
-                      _activeToggleMenu[buttonIndex] = true;
-                    } else {
-                      _activeToggleMenu[buttonIndex] = false;
+            width: double.infinity,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Container(
+                decoration: BoxDecoration(
+                    color: AppColors.surfaceAlt,
+                    borderRadius: BorderRadius.circular(10)),
+                child: ToggleButtons(
+                  borderRadius: BorderRadius.circular(10),
+                  color: AppColors.textMuted,
+                  fillColor: AppColors.primary,
+                  selectedColor: Colors.white,
+                  renderBorder: false,
+                  children: <Widget>[
+                    Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 15),
+                        child: Text(
+                          "All",
+                          style: TextStyle(fontSize: 16),
+                        )),
+                    Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 15),
+                        child: Text(
+                          "Sent",
+                          style: TextStyle(fontSize: 16),
+                        )),
+                    Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 15),
+                        child: Text(
+                          "Receive",
+                          style: TextStyle(fontSize: 16),
+                        )),
+                    Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 15),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              "Notifications",
+                              style: TextStyle(fontSize: 16),
+                            ),
+                            if (_notifications.any((n) => n['is_read'] != true)) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: BoxDecoration(
+                                    color: AppColors.danger, shape: BoxShape.circle),
+                              ),
+                            ],
+                          ],
+                        )),
+                  ],
+                  onPressed: (int index) {
+                    setState(() {
+                      for (int buttonIndex = 0;
+                          buttonIndex < _activeToggleMenu.length;
+                          buttonIndex++) {
+                        if (buttonIndex == index) {
+                          _activeToggleMenu[buttonIndex] = true;
+                        } else {
+                          _activeToggleMenu[buttonIndex] = false;
+                        }
+                      }
+                    });
+                    if (index == 3 && _notifications.isEmpty && !_isLoadingNotifications) {
+                      _loadNotifications();
                     }
-                  }
-                });
-              },
-              isSelected: _activeToggleMenu,
+                  },
+                  isSelected: _activeToggleMenu,
+                ),
+              ),
             ),
           ),
           SizedBox(
@@ -229,6 +302,9 @@ class AllTransactionActivitiesState extends State<AllTransactionActivities> {
               child: Container(
             width: double.infinity,
             child: Builder(builder: (context) {
+              if (_activeToggleMenu[3] == true) {
+                return _buildNotificationsTab();
+              }
               if (error != null) {
                 WidgetsBinding.instance!.addPostFrameCallback(
                     (_) => showErrorAlert(context, error!));
@@ -469,6 +545,134 @@ class AllTransactionActivitiesState extends State<AllTransactionActivities> {
             }),
           )),
         ]));
+  }
+
+  Widget _buildNotificationsTab() {
+    if (_isLoadingNotifications) {
+      return activitiesLoadingList(6);
+    }
+    if (_notificationsError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(FluentIcons.warning_16_filled, size: 40, color: AppColors.textMuted),
+              const SizedBox(height: 14),
+              Text("Couldn't load notifications",
+                  style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink, fontSize: 16)),
+              const SizedBox(height: 6),
+              Text(_notificationsError!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 13.5)),
+              const SizedBox(height: 14),
+              TextButton(
+                onPressed: _loadNotifications,
+                child: Text("Try again"),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_notifications.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.notifications_none_rounded, size: 40, color: AppColors.textMuted),
+              const SizedBox(height: 14),
+              Text("No notifications yet",
+                  style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink, fontSize: 16)),
+              const SizedBox(height: 6),
+              Text("Updates about your transfers, cards, and account will show up here.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 13.5)),
+            ],
+          ),
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _loadNotifications,
+      color: AppColors.primary,
+      child: ListView.separated(
+        padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+        itemCount: _notifications.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (context, index) {
+          final n = _notifications[index];
+          final bool isRead = n['is_read'] == true;
+          return InkWell(
+            onTap: () => _markNotificationRead(n),
+            borderRadius: BorderRadius.circular(AppRadii.lg),
+            child: Container(
+              padding: EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppRadii.lg),
+                boxShadow: AppShadows.card,
+                color: Colors.white,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!isRead)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6, right: 10),
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration:
+                            BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                      ),
+                    )
+                  else
+                    const SizedBox(width: 18),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          n['title']?.toString() ?? 'Notification',
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: isRead ? FontWeight.w600 : FontWeight.w800,
+                              color: AppColors.ink),
+                        ),
+                        if ((n['body']?.toString() ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            n['body'].toString(),
+                            style: TextStyle(fontSize: 13, color: AppColors.inkMuted, height: 1.4),
+                          ),
+                        ],
+                        if (n['created_at'] != null) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            _formatNotificationDate(n['created_at'].toString()),
+                            style: TextStyle(fontSize: 11.5, color: AppColors.textMuted),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  String _formatNotificationDate(String isoDate) {
+    final date = DateTime.tryParse(isoDate);
+    if (date == null) return '';
+    final local = date.toLocal();
+    return "${local.day}/${local.month}/${local.year} · ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}";
   }
 
   void _viewTransactionReceipt(Map<String, dynamic> transaction) {

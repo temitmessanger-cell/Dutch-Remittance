@@ -63,7 +63,16 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   final TextEditingController _amountController = TextEditingController(text: '100');
   final TextEditingController _recipientNameController = TextEditingController();
   final TextEditingController _recipientPhoneController = TextEditingController();
+  final TextEditingController _bankAccountNumberController = TextEditingController();
   bool _saveRecipient = true;
+
+  // Bank-account-payout fields — only collected and shown when
+  // _payoutMethod == 1 (Bank account), mirroring
+  // global_bank_transfer_screen.dart's own bank picker/account number
+  // pattern so the two screens behave consistently.
+  List<Map<String, dynamic>> _banks = [];
+  Map<String, dynamic>? _selectedBank;
+  bool _isLoadingBanks = false;
 
   late AfricanCountryInfo _destination;
   late String _sourceCurrency;
@@ -104,7 +113,78 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     _amountController.dispose();
     _recipientNameController.dispose();
     _recipientPhoneController.dispose();
+    _bankAccountNumberController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadBanksForDestination() async {
+    setState(() {
+      _isLoadingBanks = true;
+      _banks = [];
+      _selectedBank = null;
+    });
+    final result = await getData(urlPath: "/api/v1/payouts/banks/${_destination.countryCode}");
+    if (!mounted) return;
+    final list = (result['data'] is List) ? List<Map<String, dynamic>>.from(result['data']) : <Map<String, dynamic>>[];
+    setState(() {
+      _banks = list;
+      _isLoadingBanks = false;
+    });
+  }
+
+  void _onPayoutMethodChanged(int index) {
+    setState(() {
+      _payoutMethod = index;
+      _errorMessage = null;
+    });
+    if (index == 1 && _banks.isEmpty) _loadBanksForDestination();
+    _fetchQuote();
+  }
+
+  void _pickBank() {
+    if (_banks.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.lg))),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Text("Choose bank",
+                  style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink, fontSize: 16)),
+            ),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: 360),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _banks.length,
+                itemBuilder: (context, index) {
+                  final b = _banks[index];
+                  return ListTile(
+                    title: Text(b['name']?.toString() ?? '—',
+                        style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink)),
+                    trailing: _selectedBank == b
+                        ? Icon(Icons.check_circle_rounded, color: AppColors.primary)
+                        : null,
+                    onTap: () {
+                      setState(() => _selectedBank = b);
+                      Navigator.of(sheetContext).pop();
+                    },
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   void _onAmountChanged() {
@@ -242,13 +322,38 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
       setState(() => _errorMessage = "Enter the recipient's full name.");
       return;
     }
-    if (_recipientPhoneController.text.trim().isEmpty) {
-      setState(() => _errorMessage = "Enter the recipient's phone number.");
-      return;
-    }
-    if (_payoutMethod == 1) {
+
+    if (_payoutMethod == 0) {
+      if (_recipientPhoneController.text.trim().isEmpty) {
+        setState(() => _errorMessage = "Enter the recipient's mobile money number.");
+        return;
+      }
+    } else if (_payoutMethod == 1) {
+      if (_selectedBank == null) {
+        setState(() => _errorMessage = "Choose the recipient's bank.");
+        return;
+      }
+      if (_bankAccountNumberController.text.trim().isEmpty) {
+        setState(() => _errorMessage = "Enter the recipient's account number.");
+        return;
+      }
+      // The real bank-payout rail on this screen isn't wired up yet —
+      // told plainly rather than silently sent as a mobile-money
+      // payout, which is what happened before this fix.
       setState(() => _errorMessage =
           "Bank account payouts on this screen aren't wired up yet — use Global Transfer for a real bank transfer, or pick Mobile money here.");
+      return;
+    } else {
+      // Dutch Bank (method 2): needs the recipient's Dutch Remit ID,
+      // and — like Bank account — isn't wired to a real transfer on
+      // this screen yet. Previously this fell through to the momo
+      // path silently, sending garbage data; now it's told plainly.
+      if (_recipientPhoneController.text.trim().isEmpty) {
+        setState(() => _errorMessage = "Enter the recipient's Dutch Remit ID.");
+        return;
+      }
+      setState(() => _errorMessage =
+          "Wallet-to-wallet transfers aren't wired up on this screen yet — coming soon.");
       return;
     }
     if (_quotationToken == null) {
@@ -670,12 +775,85 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
           decoration: _recipientFieldDecoration("Recipient's full name"),
         ),
         const SizedBox(height: 10),
-        TextField(
-          controller: _recipientPhoneController,
-          keyboardType: TextInputType.phone,
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
-          decoration: _recipientFieldDecoration("Mobile money number, e.g. +234..."),
-        ),
+        if (_payoutMethod == 0) ...[
+          // Mobile money: only a phone number is needed — this is the
+          // one path that's actually wired end-to-end today.
+          TextField(
+            controller: _recipientPhoneController,
+            keyboardType: TextInputType.phone,
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
+            decoration: _recipientFieldDecoration("Mobile money number, e.g. +234..."),
+          ),
+        ] else if (_payoutMethod == 1) ...[
+          // Bank account: a bank picker (loaded from the destination
+          // country's real bank list) plus the recipient's account
+          // number, not a phone number — this used to show the same
+          // "Mobile money number" field even when Bank account was
+          // selected, which is exactly backwards.
+          InkWell(
+            onTap: _isLoadingBanks ? null : _pickBank,
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceAlt,
+                borderRadius: BorderRadius.circular(AppRadii.md),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _isLoadingBanks
+                        ? Text("Loading banks…",
+                            style: TextStyle(fontSize: 14, color: AppColors.textMuted))
+                        : Text(
+                            _selectedBank?['name']?.toString() ??
+                                (_banks.isEmpty
+                                    ? "No banks available for ${_destination.countryName}"
+                                    : "Choose bank"),
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: _selectedBank != null ? AppColors.ink : AppColors.textMuted),
+                          ),
+                  ),
+                  Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textMuted),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _bankAccountNumberController,
+            keyboardType: TextInputType.number,
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
+            decoration: _recipientFieldDecoration("Recipient's account number"),
+          ),
+        ] else ...[
+          // Dutch Bank: this corridor routes through the recipient's
+          // own Dutch Remit bank account rather than an external bank
+          // or mobile money number, so it needs their Dutch Remit ID
+          // instead — never the same phone-number field as momo.
+          TextField(
+            controller: _recipientPhoneController,
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
+            decoration: _recipientFieldDecoration("Recipient's Dutch Remit ID"),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline_rounded, size: 14, color: AppColors.textMuted),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  "Funds land directly in their Dutch Remit wallet — instant, no payout rail needed.",
+                  style: TextStyle(fontSize: 11.5, color: AppColors.textMuted, height: 1.4),
+                ),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 10),
         _buildSaveRecipientToggle(),
         const SizedBox(height: 14),
@@ -689,14 +867,16 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                 TextSpan(
                   children: [
                     TextSpan(
-                        text: _payoutMethod == 0 ? "Arrives in about a minute" : "Arrives in minutes to hours",
+                        text: _payoutMethod == 0
+                            ? "Arrives in about a minute"
+                            : (_payoutMethod == 2 ? "Arrives instantly" : "Arrives in minutes to hours"),
                         style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.success, fontSize: 14)),
                   ],
                 ),
               ),
             ),
             Text(
-                _payoutMethod == 0 ? "Mobile money" : "Bank transfer",
+                _payoutMethod == 0 ? "Mobile money" : (_payoutMethod == 2 ? "Dutch Bank" : "Bank transfer"),
                 style: TextStyle(fontSize: 11.5, color: AppColors.textMuted, fontFamily: 'monospace')),
           ],
         ),
@@ -752,7 +932,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   Widget _payoutMethodChip(int index, String label) {
     final bool isActive = _payoutMethod == index;
     return GestureDetector(
-      onTap: () => setState(() => _payoutMethod = index),
+      onTap: () => _onPayoutMethodChanged(index),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         alignment: Alignment.center,

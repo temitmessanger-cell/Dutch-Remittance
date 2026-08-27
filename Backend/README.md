@@ -136,11 +136,62 @@ Supabase session token so requests are tied to a real signed-in user.
   them yet.
 - **Klasha bank-list / account-resolution UI** — the backend routes
   (`GET /api/v1/klasha/banks/:currency`, `POST /api/v1/klasha/resolve-account`)
-  exist, but no screen in the app calls them yet (only the momo path
-  is wired end-to-end).
-- **`KLASHA_PAYOUT_ENDPOINTS`** in `src/corridors.js` covers the
-  currencies confirmed from Klasha's public docs — extend that map
-  as you confirm more corridors on your Klasha dashboard.
+  exist, and `africa_corridor_screen.dart`'s "Bank account" payout
+  method now shows a real bank picker built on `/klasha/banks/:currency`
+  — but the actual send still isn't wired for that method (see the
+  screen's own validation message); only Mobile money sends end-to-end
+  today.
+- **`resolveProvider`/Klasha fallback flow, corrected**: Eversend is
+  tried first for every deposit/payout, always. If a currency isn't
+  in Eversend's coverage, the app checks whether the user has a
+  matching-currency bank account (Klasha virtual account); if not, it
+  throws `needsVirtualAccount` so the app prompts a one-time setup;
+  if they do, the transfer completes automatically through that
+  account and Klasha's payout rail, with Klasha never surfaced as a
+  visible "provider" anywhere the user can see (transaction records
+  always say `provider: 'eversend'`, even when Klasha executed the
+  actual payout underneath — the raw Klasha response is still kept in
+  `raw_response` for support/debugging). This replaces an earlier,
+  incorrect version of this pass where Klasha was wired as a second
+  peer routing choice by currency, bypassing the virtual-account step
+  entirely — that was wrong and has been corrected.
+  **Important real limitation**: the virtual-account creation route
+  (`POST /api/v1/klasha/virtual-account`) only works for NGN and GHS
+  (`KLASHA_VIRTUAL_ACCOUNT_CURRENCIES` in `src/corridors.js`) — Klasha's
+  own docs only confirm NGN for virtual-account creation. `resolveProvider`
+  will correctly identify 8 more currencies (KES, XAF, XOF, UGX, ZMW,
+  TZS, RWF, ZAR) as Klasha-payout-capable, and `executePayout` will
+  correctly throw `needsVirtualAccount` for them, but there's no
+  screen yet that can act on that error for anything outside NGN/GHS
+  — `virtual_accounts_screen.dart`'s currency picker is NGN/GHS only.
+  Extending Klasha virtual-account creation to more currencies (if
+  Klasha's dashboard actually supports it) and this screen's currency
+  list must happen together.
+- **KlashaWire** (`KLASHA_WIRE_*` constants in `src/corridors.js`) is
+  a genuinely different product from momo/bank payouts — a $500–$50,000
+  business-style wire transfer settling in hard currencies (USD, EUR,
+  CNY, GBP, etc.) to 120+ countries in 1–4 business days. `wire_transfer_request_screen.dart`
+  and `POST /api/v1/klasha/wire` exist now, but the wire route
+  deliberately does NOT call any Klasha endpoint — Klasha's public
+  docs confirm the product exists but never publish its API request
+  shape, so the route records the request as `pending_manual` in
+  `transactions` instead of guessing at a path. Klasha
+  publishes a restricted/not-supported destination list rather than
+  an enumerable "all 120+ countries" array, so a real country picker
+  for it should call Klasha's own live endpoint rather than a
+  hardcoded list here, which would go stale.
+- **Crypto withdrawal** (`POST /api/v1/crypto/withdraw`) is now built
+  against Eversend's actually-confirmed API. An earlier pass guessed
+  at a direct crypto-send endpoint; Eversend's full API reference
+  confirms their crypto product is receive-only (Fetch Asset Chains,
+  Create/Fetch Crypto Addresses, Fetch Transactions — no
+  withdraw/send). Their own docs describe the real intended flow:
+  exchange the coin to fiat, then send via the normal payout rail —
+  so this route now calls the confirmed `POST /exchanges/quotation`
+  and `POST /exchanges` endpoints, and `withdraw_screen.dart` hands
+  off to `GlobalBankTransferScreen` to complete the send, instead of
+  asking for a destination crypto wallet address the API could never
+  act on.
 - **Klasha webhook signature verification** — `POST /api/v1/webhooks/klasha`
   logs and syncs every event but doesn't verify a signature (unlike
   the Eversend one, which does). Klasha's published docs cover
@@ -150,7 +201,12 @@ Supabase session token so requests are tied to a real signed-in user.
   match.
 - **`devices` / `notifications` tables** — schema and routes
   (`POST /api/v1/devices`, `GET/PATCH /api/v1/notifications`) exist;
-  nothing in the Flutter app calls them yet.
+  the Payments tab has a real Notifications upper nav wired to
+  `GET/PATCH /api/v1/notifications`, and both webhook handlers
+  (`src/routes/webhooks.js`) now write a plain-language notification
+  when a transaction resolves to success or failure — the write side
+  that was missing earlier this session is filled in now. `devices`
+  still has no writer anywhere.
 - Real Eversend/Klasha/Supabase credentials couldn't be exercised
   against live traffic from this environment (its network egress is
   restricted to a small allowlist that doesn't include

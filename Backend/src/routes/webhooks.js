@@ -49,14 +49,54 @@ router.post('/eversend', async (req, res) => {
   const reference =
     payload.transactionRef || payload.reference || payload.data?.transactionRef;
   if (reference) {
-    await supabaseAdmin
+    const newStatus = payload.status || payload.data?.status || 'updated';
+    const { data: updatedTxn } = await supabaseAdmin
       .from('transactions')
-      .update({ status: payload.status || payload.data?.status || 'updated' })
-      .eq('eversend_reference', reference);
+      .update({ status: newStatus })
+      .eq('eversend_reference', reference)
+      .select('id, user_id, type, amount, currency, status')
+      .maybeSingle();
+
+    // Surfaces in the Payments tab's Notifications upper nav
+    // (all_transaction_activities_screen.dart) — this was the one
+    // missing piece keeping that tab always empty: the read/display
+    // side existed, nothing ever wrote a row. Best-effort only; a
+    // failed insert here should never block webhook processing
+    // (the transaction status update above is already committed).
+    if (updatedTxn) {
+      await _notifyTransactionUpdate(updatedTxn);
+    }
   }
 
   res.status(200).send('ok');
 });
+
+/// Writes a plain-language notification for a transaction status
+/// change — deliberately simple copy, not trying to explain every
+/// possible status string, since most users only care about
+/// "did it work or not."
+async function _notifyTransactionUpdate(txn) {
+  const isSuccess = ['completed', 'successful', 'success'].includes((txn.status || '').toLowerCase());
+  const isFailure = ['failed', 'declined', 'error'].includes((txn.status || '').toLowerCase());
+  if (!isSuccess && !isFailure) return; // "pending"/"processing" etc. aren't worth a notification
+
+  const amountLabel = txn.amount != null ? `${txn.amount} ${txn.currency || ''}`.trim() : '';
+  const title = isSuccess ? 'Transfer completed' : "Transfer didn't go through";
+  const body = isSuccess
+    ? `Your ${txn.type === 'deposit' ? 'deposit' : 'transfer'} of ${amountLabel} completed successfully.`
+    : `Your ${txn.type === 'deposit' ? 'deposit' : 'transfer'} of ${amountLabel} couldn't be completed. Check Payments for details.`;
+
+  try {
+    await supabaseAdmin.from('notifications').insert({
+      user_id: txn.user_id,
+      title,
+      body,
+    });
+  } catch (_) {
+    // Non-fatal — a missing notification is far less bad than a
+    // webhook handler that throws and never acks Eversend/Klasha.
+  }
+}
 
 // POST /api/v1/webhooks/klasha
 // Configure in the Klasha dashboard. Klasha's webhook signing isn't
@@ -85,10 +125,17 @@ router.post('/klasha', async (req, res) => {
 
   const reference = payload.txRef || payload.reference || payload.data?.txRef;
   if (reference) {
-    await supabaseAdmin
+    const newStatus = payload.status || payload.data?.status || 'updated';
+    const { data: updatedTxn } = await supabaseAdmin
       .from('transactions')
-      .update({ status: payload.status || payload.data?.status || 'updated' })
-      .eq('eversend_reference', reference);
+      .update({ status: newStatus })
+      .eq('eversend_reference', reference)
+      .select('id, user_id, type, amount, currency, status')
+      .maybeSingle();
+
+    if (updatedTxn) {
+      await _notifyTransactionUpdate(updatedTxn);
+    }
   }
 
   res.status(200).send('ok');

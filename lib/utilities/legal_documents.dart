@@ -40,7 +40,7 @@ _Last updated: 2026_
 const String kTermsOfUse = '''
 # Terms of Use
 
-Welcome to **Dutch Remit**, a product of **Dutch Inc**. By using this app, you agree to these terms.
+Welcome to **Dutch Remit**, Cameroon's biggest cross-border remittance platform and one of Africa's leading platforms, a product of **Dutch Inc**. By using this app, you agree to these terms.
 
 ## Using Dutch Remit
 
@@ -72,7 +72,7 @@ _Last updated: 2026_
 const String kGettingStartedGuide = '''
 # Getting Started with Dutch Remit
 
-Welcome to **Dutch Remit**, built by **Dutch Inc**.
+Welcome to **Dutch Remit** — Cameroon's biggest cross-border remittance platform, and one of Africa's leading platforms for sending money and spending online. Built by **Dutch Inc**.
 
 ## What you can do
 
@@ -89,6 +89,79 @@ Create an account to save your details and send real transfers, or continue as a
 ## Need help?
 
 Reach out any time through the Help & Feedback option in Settings.
+''';
+
+const String kAboutDutchRemit = '''
+# About Dutch Remit
+
+**Dutch Remit** is Cameroon's biggest cross-border remittance and virtual card platform, and one of Africa's leading platforms for sending money and spending online — built for Cameroonians and the wider African diaspora, wherever they've landed.
+
+## What we do
+
+We move money across borders in minutes, not days — mobile money and bank transfers across a growing list of African corridors — and give you a virtual USD card to spend online anywhere Visa or Mastercard is accepted, funded straight from your wallet.
+
+## Why Dutch Remit
+
+- **Real, live exchange rates** — a transparent margin on top of the mid-market rate, never a hidden markup buried in the FX
+- **Fast delivery** — mobile money arrives in minutes; bank transfers in minutes to hours
+- **One wallet, two products** — remittances and cards share the same balance, so your money works the way you actually use it
+- **Built for the diaspora** — corridors, currencies, and payout methods chosen around how Cameroonians and other Africans abroad actually send money home
+
+## Who's behind it
+
+Dutch Remit is built and operated by **Dutch Inc**.
+
+## Get in touch
+
+Reach us any time through the Help & Feedback option in Settings, or chat with support on WhatsApp.
+
+_Last updated: 2026_
+''';
+
+const String kFrequentlyAskedQuestions = '''
+# Frequently Asked Questions
+
+## Is Dutch Remit safe to use?
+
+Yes. Dutch Remit works with licensed payment partners for every transfer, deposit, and withdrawal — we never move your money outside those real, regulated rails.
+
+## How fast do transfers arrive?
+
+Mobile money transfers typically arrive in about a minute. Bank transfers usually take minutes to a few hours, depending on the destination bank.
+
+## What currencies can I hold in my wallet?
+
+Your wallet balance is shown in XAF, USD, or USDT. Naira (NGN) and Cedi (GHS) become available once you set up a bank account in that currency — see Bank Accounts in your Profile.
+
+## How do I deposit money?
+
+From the Home screen, tap Deposit and choose mobile money, Orange Money, bank transfer, or crypto. Each method shows you exactly what currency you're depositing in before you confirm.
+
+## How do I send money abroad?
+
+Open Send Abroad from the bottom navigation and pick the corridor that matches what you need — Global Transfer, Diaspora to Africa, Africa to Africa, or Quick Transfer. Enter an amount and recipient details, and you'll see the exact rate and fee before you send.
+
+## Can I deposit or withdraw crypto?
+
+Yes. Choose Crypto as your method on the Deposit or Withdraw screen. Deposits give you a real wallet address to send to; withdrawals ask for your destination wallet address. A small network fee plus Dutch Remit's 1% applies on top of what our processor charges.
+
+## What's a bank account, and why do I need one?
+
+For corridors our main provider doesn't directly cover, we route your money through a real local bank account in that currency first, then complete the transfer. It's a one-time setup per currency, with a small one-time fee.
+
+## How do virtual cards work?
+
+Create a card from the Cards tab, fund it from your USD or XAF wallet balance, and spend it anywhere Visa or Mastercard is accepted online. You can freeze, top up, or close a card at any time.
+
+## What if my transfer doesn't arrive?
+
+Check the transaction's status in your Payments tab first — most delays resolve within the stated delivery window. If it's been longer, reach out through Help & Feedback in Settings or chat with support on WhatsApp.
+
+## How do I invite friends to Dutch Remit?
+
+From your Profile, tap "Not on Dutch Remit?" and choose how you'd like to share your invite — SMS, WhatsApp, Facebook, Telegram, or any other app on your phone.
+
+_Last updated: 2026_
 ''';
 
 const String kLoginHelp = '''

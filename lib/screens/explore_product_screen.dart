@@ -5,7 +5,7 @@ import 'package:dutch_remit/utilities/african_country_data.dart';
 import 'package:dutch_remit/components/international_transfer/african_country_picker_sheet.dart';
 import 'package:dutch_remit/screens/africa_corridor_screen.dart';
 import 'package:dutch_remit/screens/top_up_screen.dart';
-import 'package:dutch_remit/screens/international_transfer_screen.dart' show GlobalTransferTabContent;
+import 'package:dutch_remit/screens/wire_transfer_request_screen.dart';
 
 class _Persona {
   final IconData icon;
@@ -142,15 +142,9 @@ class _ExploreProductScreenState extends State<ExploreProductScreen> {
         Navigator.push(
           context,
           SlideRightRoute(
-            page: Scaffold(
-              backgroundColor: AppColors.scaffold,
-              appBar: AppBar(
-                title: Text(persona.title),
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                foregroundColor: AppColors.ink,
-              ),
-              body: SafeArea(child: GlobalTransferTabContent(user: widget.user)),
+            page: WireTransferRequestScreen(
+              user: widget.user,
+              userAuthKey: widget.userAuthKey,
             ),
           ),
         );

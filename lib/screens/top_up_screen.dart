@@ -89,6 +89,23 @@ class _TopUpScreenState extends State<TopUpScreen> {
       widget.userAuthKey == null ||
       widget.userAuthKey!.trim().isEmpty;
 
+  /// The currency shown next to the amount field for the currently
+  /// selected method: mobile money/Orange Money are local
+  /// XAF-denominated rails, bank deposits are entered in USD (then
+  /// credited to whichever bank-account currency was chosen), and
+  /// crypto is entered in USD with the coin equivalent shown below.
+  String get _amountCurrencyLabel {
+    switch (_selectedMethod.id) {
+      case 'mobile_money':
+      case 'orange_money':
+        return 'XAF';
+      case 'bank':
+      case 'crypto':
+      default:
+        return 'USD';
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -524,9 +541,6 @@ class _TopUpScreenState extends State<TopUpScreen> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text("\$ ",
-                          style: TextStyle(
-                              fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.primary)),
                       Expanded(
                         child: TextField(
                           controller: _amountController,
@@ -537,8 +551,20 @@ class _TopUpScreenState extends State<TopUpScreen> {
                             isDense: true,
                             border: InputBorder.none,
                             contentPadding: EdgeInsets.zero,
+                            hintText: '0',
                           ),
                         ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceAlt,
+                          borderRadius: BorderRadius.circular(AppRadii.sm),
+                        ),
+                        child: Text(_amountCurrencyLabel,
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.primary)),
                       ),
                     ],
                   ),
@@ -629,6 +655,9 @@ class _TopUpScreenState extends State<TopUpScreen> {
                     else if (!_isLoadingCryptoRate)
                       Text("Live rate unavailable right now — try again shortly.",
                           style: TextStyle(fontSize: 12, color: AppColors.danger)),
+                    const SizedBox(height: 6),
+                    Text("Network fee applies + Dutch Remit's 1% on top.",
+                        style: TextStyle(fontSize: 11.5, color: AppColors.inkMuted)),
                   ],
                 ),
               ),

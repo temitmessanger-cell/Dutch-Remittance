@@ -1,6 +1,8 @@
 const express = require('express');
 const { eversend } = require('../eversendClient');
 const { getQuotation } = require('../paymentRouter');
+const { supabaseAdmin } = require('../supabaseClient');
+const { optionalAppUser } = require('../middleware/requireAppUser');
 
 const router = express.Router();
 
@@ -35,7 +37,7 @@ function applyExchangeMarkup(providerData) {
 // Eversend if the destination currency is a confirmed corridor (see
 // paymentRouter.js / corridors.js) so the app never has to know or
 // care which provider is behind a given corridor.
-router.post('/quotation', async (req, res, next) => {
+router.post('/quotation', optionalAppUser, async (req, res, next) => {
   try {
     const { sourceWallet, amount, amountType, type, destinationCountry, destinationCurrency } =
       req.body || {};
@@ -46,6 +48,7 @@ router.post('/quotation', async (req, res, next) => {
     }
     const result = await getQuotation({
       sourceWallet, amount, amountType, type, destinationCountry, destinationCurrency,
+      userId: req.user?.id, supabaseAdmin,
     });
     res.json(result);
   } catch (err) {

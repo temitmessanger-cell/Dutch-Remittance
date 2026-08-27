@@ -3,12 +3,17 @@ import 'package:flutter/services.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
 import 'package:dutch_remit/utilities/make_api_request.dart';
 
-/// Klasha NGN/GHS virtual accounts — required once per currency
-/// before a Klasha-routed corridor (one Eversend doesn't cover) can
-/// send: funds move from the user's Eversend wallet into this account
-/// first, then the real payout goes out from there. See
+/// Bank accounts (Klasha-backed) for cross-border transfers, in NGN
+/// and GHS — required once per currency before a Klasha-routed
+/// corridor (one our main provider doesn't cover) can send: funds
+/// move from the user's Eversend wallet into this bank account first,
+/// then the real payout goes out from there. See
 /// Backend/src/routes/klasha.js and paymentRouter.js's
 /// VIRTUAL_ACCOUNT_CURRENCIES two-hop flow.
+///
+/// Deliberately called "Bank account" everywhere in this screen's
+/// user-facing copy, never "virtual account" or "VAS" — those are
+/// internal/provider terms a user has no reason to know.
 class VirtualAccountsScreen extends StatefulWidget {
   final Map<String, dynamic> user;
   final String? userAuthKey;
@@ -51,20 +56,143 @@ class _VirtualAccountsScreenState extends State<VirtualAccountsScreen> {
 
   double get _nextFee => _accounts.isEmpty ? 0.5 : 1.5;
 
+  /// Collects the fields Klasha's virtual-account creation actually
+  /// needs, pre-filled from the signed-in user's profile where
+  /// available but always editable — the previous version silently
+  /// sent whatever was in `widget.user` with no form and no chance to
+  /// fix a missing or wrong name before the request went out.
+  Future<Map<String, String>?> _collectAccountDetails(String currency) async {
+    final firstNameController = TextEditingController(
+        text: widget.user['first_name']?.toString() ?? '');
+    final lastNameController = TextEditingController(
+        text: widget.user['last_name']?.toString() ?? '');
+    final emailController =
+        TextEditingController(text: widget.user['email']?.toString() ?? '');
+    final formKey = GlobalKey<FormState>();
+
+    final result = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.lg))),
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Confirm your details",
+                      style: TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 18, color: AppColors.ink)),
+                  const SizedBox(height: 4),
+                  Text(
+                      "This is the name Klasha will register on your $currency bank account. It must match your ID.",
+                      style: TextStyle(fontSize: 13, color: AppColors.inkMuted, height: 1.4)),
+                  const SizedBox(height: 18),
+                  _formField("First name", firstNameController),
+                  const SizedBox(height: 12),
+                  _formField("Last name", lastNameController),
+                  const SizedBox(height: 12),
+                  _formField("Email", emailController,
+                      keyboardType: TextInputType.emailAddress),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        if (formKey.currentState?.validate() != true) return;
+                        Navigator.of(sheetContext).pop({
+                          'firstName': firstNameController.text.trim(),
+                          'lastName': lastNameController.text.trim(),
+                          'email': emailController.text.trim(),
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadii.md)),
+                      ),
+                      child: Text("Continue",
+                          style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    firstNameController.dispose();
+    lastNameController.dispose();
+    emailController.dispose();
+    return result;
+  }
+
+  Widget _formField(String label, TextEditingController controller,
+      {TextInputType? keyboardType}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: TextStyle(
+                fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.textMuted)),
+        const SizedBox(height: 6),
+        TextFormField(
+          controller: controller,
+          keyboardType: keyboardType,
+          style: TextStyle(fontSize: 14.5, color: AppColors.ink),
+          validator: (v) =>
+              (v == null || v.trim().isEmpty) ? '$label is required' : null,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: AppColors.surfaceAlt,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: AppColors.border),
+                borderRadius: BorderRadius.circular(AppRadii.md)),
+            focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: AppColors.primary, width: 1.6),
+                borderRadius: BorderRadius.circular(AppRadii.md)),
+            errorBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: AppColors.danger),
+                borderRadius: BorderRadius.circular(AppRadii.md)),
+            border: OutlineInputBorder(
+                borderSide: BorderSide(color: AppColors.border),
+                borderRadius: BorderRadius.circular(AppRadii.md)),
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> _createAccount(String currency) async {
     if (_isGuest) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Create an account to set up a virtual account.")),
+        SnackBar(content: Text("Create an account to set up a bank account.")),
       );
       return;
     }
+
+    final details = await _collectAccountDetails(currency);
+    if (details == null || !mounted) return;
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.lg)),
-        title: Text("Create $currency virtual account",
+        title: Text("Create $currency bank account",
             style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink)),
         content: Text(
           "A one-time \$${_nextFee.toStringAsFixed(2)} fee applies. This account is created once and reused for every future transfer through this corridor.",
@@ -88,7 +216,7 @@ class _VirtualAccountsScreenState extends State<VirtualAccountsScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
 
     setState(() {
       _isCreating = true;
@@ -99,9 +227,9 @@ class _VirtualAccountsScreenState extends State<VirtualAccountsScreen> {
       urlPath: "/api/v1/klasha/virtual-account",
       data: {
         "currency": currency,
-        "email": widget.user['email'],
-        "firstName": widget.user['first_name'],
-        "lastName": widget.user['last_name'],
+        "email": details['email'],
+        "firstName": details['firstName'],
+        "lastName": details['lastName'],
       },
       authKey: widget.userAuthKey,
     );
@@ -124,7 +252,7 @@ class _VirtualAccountsScreenState extends State<VirtualAccountsScreen> {
     return Scaffold(
       backgroundColor: AppColors.scaffold,
       appBar: AppBar(
-        title: Text("Virtual Accounts",
+        title: Text("Bank Accounts",
             style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink, fontSize: 17)),
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -140,7 +268,7 @@ class _VirtualAccountsScreenState extends State<VirtualAccountsScreen> {
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink)),
                   const SizedBox(height: 8),
                   Text(
-                    "For corridors our main provider doesn't cover, we route funds through your own local virtual account first, then complete the transfer — a one-time setup per currency.",
+                    "For corridors our main provider doesn't cover, we route funds through your own local bank account first, then complete the transfer — a one-time setup per currency.",
                     style: TextStyle(fontSize: 13.5, color: AppColors.textMuted, height: 1.4),
                   ),
                   const SizedBox(height: 20),

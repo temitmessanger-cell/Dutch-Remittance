@@ -36,6 +36,25 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
   final CurrencyConversionService _currencyService = CurrencyConversionService();
   String _displayCurrency = 'USD';
 
+  // The only currencies the home balance card can display, per
+  // product decision — NGN and GHS require a bank account (see
+  // VirtualAccountsScreen / klasha.js) to actually be usable, so they
+  // show as unavailable until one exists rather than being hidden
+  // entirely, so the user knows the path to unlock them.
+  static const List<Map<String, String>> _homeCurrencies = [
+    {'code': 'XAF', 'name': 'CFA Franc (Central Africa)', 'flag': '🇨🇲'},
+    {'code': 'USD', 'name': 'US Dollar', 'flag': '🇺🇸'},
+    {'code': 'USDT', 'name': 'Tether (USDT)', 'flag': '₮'},
+    {'code': 'NGN', 'name': 'Nigerian Naira', 'flag': '🇳🇬'},
+    {'code': 'GHS', 'name': 'Ghanaian Cedi', 'flag': '🇬🇭'},
+  ];
+
+  // Which of NGN/GHS the user actually has a bank account for —
+  // loaded once on init from the same endpoint VirtualAccountsScreen
+  // uses, so the two screens never disagree about what's unlocked.
+  Set<String> _bankAccountCurrencies = {};
+  bool _loadedBankAccounts = false;
+
   // Home used to stack a "Recent contacts" strip directly above a
   // 4-item transaction preview, both squeezed into whatever space was
   // left under the balance card and quick actions — which read as a
@@ -52,6 +71,7 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
   void initState() {
     super.initState();
     getTransactionsFromApi();
+    _loadBankAccounts();
 
     // Best-effort: replace the locally-tracked balance with the real
     // Eversend wallet balance as soon as the backend is reachable, so
@@ -242,7 +262,7 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        "USD",
+                        _displayCurrency,
                         style: TextStyle(
                             color: Colors.white,
                             fontSize: 12.5,
@@ -520,9 +540,47 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
   }
 
 
+  Future<void> _loadBankAccounts() async {
+    if (widget.userAuthKey == null || widget.userAuthKey!.trim().isEmpty) {
+      setState(() => _loadedBankAccounts = true);
+      return;
+    }
+    final result = await getData(
+        urlPath: "/api/v1/klasha/virtual-accounts/mine", authKey: widget.userAuthKey);
+    if (!mounted) return;
+    final accounts = result['virtualAccounts'] is List
+        ? List<Map<String, dynamic>>.from(
+            (result['virtualAccounts'] as List).map((a) => Map<String, dynamic>.from(a)))
+        : <Map<String, dynamic>>[];
+    setState(() {
+      _bankAccountCurrencies =
+          accounts.map((a) => a['currency']?.toString().toUpperCase() ?? '').toSet();
+      _loadedBankAccounts = true;
+    });
+  }
+
+  /// Whether [code] can be selected as a display currency right now.
+  /// XAF, USD and USDT are always available; NGN and GHS require a
+  /// bank account in that currency first (see VirtualAccountsScreen).
+  bool _isCurrencyUnlocked(String code) {
+    if (code == 'NGN' || code == 'GHS') {
+      return _bankAccountCurrencies.contains(code);
+    }
+    return true;
+  }
+
   Widget _buildConvertedAmountRow(String userBalance) {
     final double? amount = double.tryParse(userBalance.replaceAll(',', ''));
     if (amount == null) return const SizedBox.shrink();
+
+    // USDT tracks USD 1:1 — no conversion call needed or meaningful.
+    if (_displayCurrency == 'USDT') {
+      return Text(
+        "≈ ${amount.toStringAsFixed(2)} USDT",
+        style: TextStyle(
+            color: Colors.white.withOpacity(0.7), fontSize: 13, fontWeight: FontWeight.w600),
+      );
+    }
 
     return FutureBuilder<double?>(
       key: ValueKey(_displayCurrency),
@@ -597,26 +655,52 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
                         fontWeight: FontWeight.w700,
                         color: AppColors.ink)),
                 const SizedBox(height: 4),
-                Text("Live rates from the European Central Bank",
+                Text("Your wallet's real balance stays in USD — this only changes how it's shown.",
                     style: TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
                 const SizedBox(height: 12),
-                ...CurrencyConversionService.supportedCurrencies.map((code) {
+                ..._homeCurrencies.map((c) {
+                  final code = c['code']!;
                   final bool isSelected = code == _displayCurrency;
+                  final bool isUnlocked = _isCurrencyUnlocked(code);
                   return ListTile(
                     contentPadding: EdgeInsets.zero,
+                    enabled: isUnlocked,
+                    leading: Text(c['flag']!, style: const TextStyle(fontSize: 20)),
                     title: Text(code,
                         style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.ink,
+                            fontWeight: FontWeight.w700,
+                            color: isUnlocked ? AppColors.ink : AppColors.textMuted,
                             fontSize: 15)),
+                    subtitle: !isUnlocked
+                        ? Text("Unavailable — create a $code bank account",
+                            style: TextStyle(fontSize: 11.5, color: AppColors.warning))
+                        : Text(c['name']!,
+                            style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
                     trailing: isSelected
                         ? Icon(Icons.check_circle_rounded,
                             color: AppColors.primary, size: 20)
+                        : (!isUnlocked
+                            ? TextButton(
+                                onPressed: () {
+                                  Navigator.of(context).pop();
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => VirtualAccountsScreen(
+                                          user: widget.user, userAuthKey: widget.userAuthKey),
+                                    ),
+                                  );
+                                },
+                                child: Text("Create",
+                                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                              )
+                            : null),
+                    onTap: isUnlocked
+                        ? () {
+                            setState(() => _displayCurrency = code);
+                            Navigator.of(context).pop();
+                          }
                         : null,
-                    onTap: () {
-                      setState(() => _displayCurrency = code);
-                      Navigator.of(context).pop();
-                    },
                   );
                 }).toList(),
               ],
