@@ -2,6 +2,7 @@ const express = require('express');
 const { klasha } = require('../klashaClient');
 const { requireAppUser } = require('../middleware/requireAppUser');
 const { supabaseAdmin } = require('../supabaseClient');
+const { debitIfSufficient, credit } = require('../walletLedger');
 const { KLASHA_PAYOUT_ENDPOINTS, KLASHA_VIRTUAL_ACCOUNT_CURRENCIES } = require('../corridors');
 
 const router = express.Router();
@@ -62,7 +63,7 @@ router.post('/resolve-account', requireAppUser, async (req, res, next) => {
 // Coverage: NGN, ZAR, GHS (beta), KES (beta) — see corridors.js.
 router.post('/payout', requireAppUser, async (req, res, next) => {
   try {
-    const { currency, amount, requestId } = req.body || {};
+    const { currency, amount, requestId, amountUsd } = req.body || {};
     if (!currency || !amount) {
       return res.status(400).json({ error: 'currency and amount are required.' });
     }
@@ -71,6 +72,23 @@ router.post('/payout', requireAppUser, async (req, res, next) => {
     if (!endpoint) {
       return res.status(400).json({
         error: `Klasha payout isn't available for ${currency}. Confirmed coverage: ${Object.keys(KLASHA_PAYOUT_ENDPOINTS).join(', ')}.`,
+      });
+    }
+
+    // Real balance check — not currently called by any screen in the
+    // app (real Klasha-routed sends go through the two-hop VA flow
+    // via POST /payouts/send, see paymentRouter.js), but kept as a
+    // genuinely callable route, so it gets the same fund-safety check
+    // as every other debit path rather than being left exposed.
+    const chargeAmountUsd = Number(amountUsd ?? (currency.toUpperCase() === 'USD' ? amount : null));
+    if (!(chargeAmountUsd > 0)) {
+      return res.status(400).json({ error: 'A valid amountUsd is required to check your balance for this currency.' });
+    }
+    const debitResult = await debitIfSufficient(req.user.id, chargeAmountUsd, `klasha payout (${currency})`);
+    if (!debitResult.ok) {
+      return res.status(402).json({
+        error: `Your balance (\$${debitResult.currentBalance.toFixed(2)}) doesn't cover this transfer. Add funds and try again.`,
+        currentBalance: debitResult.currentBalance,
       });
     }
 
@@ -138,6 +156,17 @@ router.post('/virtual-account', requireAppUser, async (req, res, next) => {
       .select('id', { count: 'exact', head: true })
       .eq('user_id', req.user.id);
     const fee = count && count > 0 ? VIRTUAL_ACCOUNT_FEE_ADDITIONAL : VIRTUAL_ACCOUNT_FEE_FIRST;
+
+    // Real balance check for the one-time creation fee — small
+    // ($0.50-$1.50), but still a real debit against the user's
+    // tracked balance that previously had no check against it.
+    const debitResult = await debitIfSufficient(req.user.id, fee, `${upperCurrency} bank account creation fee`);
+    if (!debitResult.ok) {
+      return res.status(402).json({
+        error: `Your balance (\$${debitResult.currentBalance.toFixed(2)}) doesn't cover the \$${fee.toFixed(2)} account creation fee. Add funds and try again.`,
+        currentBalance: debitResult.currentBalance,
+      });
+    }
 
     // Send EXACTLY the four fields Klasha's decryptor expects, in a
     // clean object — confirmed by the live successful VA test
@@ -248,6 +277,29 @@ router.post('/wire', requireAppUser, async (req, res, next) => {
     }
     if (amount > 50000) {
       return res.status(400).json({ error: 'KlashaWire transfers are capped at $50,000 per transaction. Split larger amounts into multiple transfers.' });
+    }
+
+    // Real balance reservation: even though this route doesn't call
+    // Klasha yet (see the unverified-endpoint note above), the funds
+    // still need to be locked now — otherwise a user could request
+    // several wires in a row against the same balance while they all
+    // sit pending manual processing, then have every one of them
+    // approved against money that was only ever really there once.
+    // sourceCurrency is assumed USD for this check unless the caller
+    // says otherwise; KlashaWire's own funding currencies are mostly
+    // African currencies per corridors.js's KLASHA_WIRE_* constants,
+    // so a real amountUsd should be supplied by the app when funding
+    // from a non-USD wallet.
+    const chargeAmountUsd = Number(req.body.amountUsd ?? (sourceCurrency === 'USD' ? amount : null));
+    if (!(chargeAmountUsd > 0)) {
+      return res.status(400).json({ error: 'A valid amountUsd is required to check your balance for this currency.' });
+    }
+    const debitResult = await debitIfSufficient(req.user.id, chargeAmountUsd, `wire transfer request (${destinationCurrency})`);
+    if (!debitResult.ok) {
+      return res.status(402).json({
+        error: `Your balance (\$${debitResult.currentBalance.toFixed(2)}) doesn't cover this wire transfer. Add funds and try again.`,
+        currentBalance: debitResult.currentBalance,
+      });
     }
 
     const { data: wireRequest, error: insertError } = await supabaseAdmin

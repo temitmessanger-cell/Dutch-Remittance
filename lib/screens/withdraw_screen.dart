@@ -12,7 +12,7 @@ import 'package:dutch_remit/screens/global_bank_transfer_screen.dart';
 /// Withdraw flow, matching the same card-based layout as Deposit: pick
 /// a destination, type or quick-pick an amount, and — for Crypto — see
 /// a real live conversion from CoinGecko's public price feed plus
-/// Eversend's real crypto fee with Dutch Remit's 1% markup on top.
+/// Eversend's real crypto fee with Dutch Remit's 1.2% markup on top.
 ///
 /// The amount field's currency switches with the selected method, so
 /// the number the user types always means what it says:
@@ -318,7 +318,7 @@ class _WithdrawScreenState extends State<WithdrawScreen> {
             style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink)),
         content: Text(
           feeBreakdown != null
-              ? "$amount $_cryptoCoin has been exchanged and added to your wallet balance. Total fee (including Dutch Remit's 1%): \$${feeBreakdown['totalFee']?.toString() ?? '—'}. Now choose where to send it."
+              ? "$amount $_cryptoCoin has been exchanged and added to your wallet balance. Total fee (including Dutch Remit's margin): \$${feeBreakdown['totalFee']?.toString() ?? '—'}. Now choose where to send it."
               : "$amount $_cryptoCoin has been exchanged and added to your wallet balance. Now choose where to send it.",
           style: TextStyle(color: AppColors.inkMuted, height: 1.4),
         ),
@@ -619,9 +619,6 @@ class _WithdrawScreenState extends State<WithdrawScreen> {
                       Text("1 $_cryptoCoin = \$${_cryptoRate!.toStringAsFixed(_cryptoRate! < 1 ? 4 : 2)}",
                           style: TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
                     ],
-                    const SizedBox(height: 6),
-                    Text("Includes Eversend's network fee + Dutch Remit's 1% on top.",
-                        style: TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
                   ],
                 ),
               ),

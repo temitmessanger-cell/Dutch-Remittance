@@ -7,6 +7,7 @@ import 'package:dutch_remit/utilities/african_country_data.dart';
 import 'package:dutch_remit/utilities/custom_date_grouping.dart';
 import 'package:dutch_remit/utilities/make_api_request.dart';
 import 'package:dutch_remit/components/shared/transaction_receipt_dialog.dart';
+import 'package:dutch_remit/components/shared/phone_number_field.dart';
 
 /// The real withdrawal flow for Mobile Money / Orange Money: pick the
 /// destination country, enter the recipient phone number, quote and
@@ -36,6 +37,7 @@ class MobileMoneyWithdrawalScreen extends StatefulWidget {
 class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScreen> {
   AfricanCountryInfo _country = kAfricanCountries.first;
   final TextEditingController _phoneController = TextEditingController();
+  String _fullPhoneNumber = '';
   final TextEditingController _nameController = TextEditingController();
   bool _saveRecipient = true;
 
@@ -99,7 +101,15 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
       data: {
         "sourceWallet": "USD",
         "amount": widget.amount,
-        "amountType": "SOURCE",
+        // DESTINATION, not SOURCE: widget.amount is the destination
+        // currency's amount (e.g. XAF), not USD — this was previously
+        // sent as amountType: "SOURCE", which told Eversend to treat
+        // widget.amount as if it were already USD, silently
+        // mis-quoting every non-USD withdrawal. Fixed so the
+        // quotation correctly asks "what does it cost in USD to
+        // deliver this much XAF", matching what the amount field
+        // actually represents throughout the rest of this screen.
+        "amountType": "DESTINATION",
         "type": "momo",
         "destinationCountry": _country.countryCode,
         "destinationCurrency": _country.currencyCode,
@@ -130,10 +140,27 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
     return null;
   }
 
+  // The real USD cost of this withdrawal, from the same quotation
+  // response — needed so the backend's wallet_ledger balance check
+  // (POST /api/v1/payouts/send) can verify against the user's actual
+  // USD-denominated balance, not the destination-currency amount.
+  // Confirmed shape: quotation.sourceAmount, alongside
+  // destinationAmount/exchangeRate/totalFees (see paymentRouter.js).
+  double? get _sourceAmountUsd {
+    final data = _quote?['data'];
+    if (data is Map && data['data'] is Map) {
+      final quotation = (data['data'] as Map)['quotation'];
+      if (quotation is Map) {
+        return double.tryParse(quotation['sourceAmount']?.toString() ?? '');
+      }
+    }
+    return null;
+  }
+
   Future<void> _confirmWithdrawal() async {
-    final phone = _phoneController.text.trim();
+    final phone = _fullPhoneNumber;
     if (phone.isEmpty || !phone.startsWith('+')) {
-      setState(() => _errorMessage = "Enter the phone number in international format, e.g. +256712345678.");
+      setState(() => _errorMessage = "Enter the recipient's phone number.");
       return;
     }
     if (_nameController.text.trim().isEmpty) {
@@ -143,6 +170,10 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
     if (_quotationToken == null) {
       setState(() => _errorMessage =
           "Couldn't lock in a rate for this transfer — try refreshing the quote, or the sending wallet may not have enough balance to cover it yet.");
+      return;
+    }
+    if (_sourceAmountUsd == null) {
+      setState(() => _errorMessage = "Couldn't confirm the USD cost of this transfer — try refreshing the quote.");
       return;
     }
 
@@ -167,6 +198,7 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
         "isBank": false,
         "isMomo": true,
         "amount": widget.amount,
+        "amountUsd": _sourceAmountUsd,
         "currency": _country.currencyCode,
         "destinationCurrency": _country.currencyCode,
         "destinationCountry": _country.countryCode,
@@ -220,8 +252,20 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
     });
 
     if (!mounted) return;
-    Provider.of<UserLoginStateProvider>(context, listen: false)
-        .updateBankBalance('debit', widget.amount.toStringAsFixed(2));
+    // Real fix: widget.amount is in the destination currency (XAF for
+    // mobile money), not USD — debiting the local USD-tracked balance
+    // with that raw number would corrupt the displayed balance the
+    // same way the deposit screen's equivalent bug did. _sourceAmountUsd
+    // (computed from the real quotation) is the correct USD figure to
+    // debit locally; syncBalanceFromEversend then reconciles against
+    // the real Eversend balance right after, so this is a fast local
+    // update immediately followed by the authoritative real number.
+    if (_sourceAmountUsd != null) {
+      Provider.of<UserLoginStateProvider>(context, listen: false)
+          .updateBankBalance('debit', _sourceAmountUsd!.toStringAsFixed(2));
+    }
+    await Provider.of<UserLoginStateProvider>(context, listen: false)
+        .syncBalanceFromEversend(widget.userAuthKey);
 
     setState(() {
       _isSending = false;
@@ -250,7 +294,7 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
       children: [
-        Text("Withdrawing \$${widget.amount.toStringAsFixed(2)}",
+        Text("Withdrawing ${widget.amount.toStringAsFixed(2)} ${_country.currencyCode}",
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink)),
         const SizedBox(height: 6),
         Text("Where should we send it, and to whom?",
@@ -299,11 +343,11 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
         const SizedBox(height: 18),
         Text("PHONE NUMBER", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textMuted)),
         const SizedBox(height: 8),
-        TextField(
+        PhoneNumberField(
+          initialCountryCode: _country.countryCode,
           controller: _phoneController,
-          keyboardType: TextInputType.phone,
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
-          decoration: _fieldDecoration("+256712345678"),
+          hintText: "712345678",
+          onChanged: (fullNumber) => setState(() => _fullPhoneNumber = fullNumber),
         ),
         const SizedBox(height: 10),
         InkWell(
@@ -412,7 +456,7 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink)),
           const SizedBox(height: 8),
           Text(
-            "\$${widget.amount.toStringAsFixed(2)} is on its way to ${_nameController.text.trim()} in ${_country.countryName}.",
+            "${widget.amount.toStringAsFixed(2)} ${_country.currencyCode} is on its way to ${_nameController.text.trim()} in ${_country.countryName}.",
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 13.5, color: AppColors.textMuted),
           ),

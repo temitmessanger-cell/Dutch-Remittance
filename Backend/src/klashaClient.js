@@ -218,8 +218,7 @@ class KlashaClient {
     const message =
       err.response?.data?.message ||
       err.response?.data?.error ||
-      err.message ||
-      'Klasha request failed';
+      (err.response ? 'Something went wrong on our end. Please try again.' : 'Could not reach our payment partner right now. Please try again shortly.');
     const normalized = new Error(message);
     normalized.status = status || 502;
     normalized.details = err.response?.data;

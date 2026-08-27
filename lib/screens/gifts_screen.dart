@@ -216,6 +216,66 @@ class _GiftsScreenState extends State<GiftsScreen> {
       return;
     }
 
+    // Always show the rate before sending — per product requirement,
+    // every send flow in the app should let the user see the rate
+    // (or an honest "unavailable" if the quote came back without one)
+    // before money moves, not just after. Previously this screen
+    // quoted and sent in a single tap with no visible confirmation.
+    final quotation = quoteResult['data']?['quotation'] ?? quoteResult['quotation'];
+    final exchangeRate = quotation?['exchangeRate'];
+    final destinationAmount = quotation?['destinationAmount'];
+
+    setState(() => _isProcessing = false);
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.lg)),
+        title: Text("Confirm gift", style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("\$${amount.toStringAsFixed(2)} to ${_selectedRecipient!['name'] ?? 'your contact'}",
+                style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Text(
+              exchangeRate != null
+                  ? "Rate: 1 USD = ${double.tryParse(exchangeRate.toString())?.toStringAsFixed(4) ?? exchangeRate} ${_selectedDestination!.currencyCode}"
+                  : "Rate unavailable — shown at delivery",
+              style: TextStyle(color: AppColors.inkMuted, fontSize: 13),
+            ),
+            if (destinationAmount != null) ...[
+              const SizedBox(height: 4),
+              Text("They receive: ${destinationAmount.toString()} ${_selectedDestination!.currencyCode}",
+                  style: TextStyle(color: AppColors.inkMuted, fontSize: 13)),
+            ],
+          ],
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text("Cancel", style: TextStyle(color: AppColors.textMuted)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.sm)),
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text("Send gift"),
+          ),
+        ],
+      ),
+    );
+
+    if (proceed != true || !mounted) return;
+
+    setState(() => _isProcessing = true);
+
     final now = DateTime.now();
     final reference = 'DR-GIFT-${now.millisecondsSinceEpoch}';
     final recipientName = _selectedRecipient!['name']?.toString() ?? 'your contact';
@@ -275,8 +335,13 @@ class _GiftsScreenState extends State<GiftsScreen> {
 
     if (!mounted) return;
 
-    Provider.of<UserLoginStateProvider>(context, listen: false)
-        .updateBankBalance('debit', amount.toStringAsFixed(2));
+    // Gifts are always sent from the USD wallet (sourceWallet is
+    // hardcoded USD above), so this specific debit was already
+    // correct — switched to the same real-balance sync every other
+    // send screen now uses, for consistency and so this stays correct
+    // if gifts are ever extended to support other source currencies.
+    await Provider.of<UserLoginStateProvider>(context, listen: false)
+        .syncBalanceFromEversend(widget.userAuthKey);
 
     setState(() => _isProcessing = false);
 

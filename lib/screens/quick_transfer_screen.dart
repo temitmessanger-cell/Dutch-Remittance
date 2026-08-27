@@ -8,8 +8,7 @@ class _QuickPair {
   final String flag;
   final String country;
   final String currencyCode;
-  final double rateToDestination;
-  const _QuickPair(this.flag, this.country, this.currencyCode, this.rateToDestination);
+  const _QuickPair(this.flag, this.country, this.currencyCode);
 }
 
 /// The current "you're sending to" destination for this quick-transfer
@@ -18,25 +17,31 @@ class _QuickPair {
 final AfricanCountryInfo _kDefaultDestination =
     kAfricanCountries.firstWhere((c) => c.countryName == 'Cameroon');
 
-/// ~15 popular sending-country pairs people actually move money along,
-/// and back — matching the reference "Where are you sending from?"
-/// list (country, live rate, Momo/Wallet payout chips, ~1 min delivery).
+/// ~15 popular sending-country pairs people actually move money along.
+/// No rate is stored or shown here — every card routes into the real
+/// quote screen (AfricaCorridorScreen) for the actual live number.
+/// A previous version of this list carried a hardcoded
+/// `rateToDestination` field per pair (e.g. France->663.1) that was
+/// never displayed anywhere in this screen, but was a fabricated,
+/// unmaintained number sitting in the codebase where a future edit
+/// could easily start showing it by mistake — removed entirely rather
+/// than left as dead, false data.
 const List<_QuickPair> _kQuickPairs = [
-  _QuickPair('🇫🇷', 'France', 'EUR', 663.1),
-  _QuickPair('🇳🇬', 'Nigeria', 'NGN', 0.4137),
-  _QuickPair('🇬🇭', 'Ghana', 'GHS', 49.17),
-  _QuickPair('🇰🇪', 'Kenya', 'KES', 4.72),
-  _QuickPair('🇬🇧', 'United Kingdom', 'GBP', 752.1),
-  _QuickPair('🇿🇲', 'Zambia', 'ZMW', 30.5),
-  _QuickPair('🇸🇳', 'Senegal', 'XOF', 0.9975),
-  _QuickPair('🇧🇫', 'Burkina Faso', 'XOF', 0.9975),
-  _QuickPair('🇺🇸', 'United States', 'USD', 610.4),
-  _QuickPair('🇨🇮', "Côte d'Ivoire", 'XOF', 0.9975),
-  _QuickPair('🇿🇦', 'South Africa', 'ZAR', 33.9),
-  _QuickPair('🇷🇼', 'Rwanda', 'RWF', 0.44),
-  _QuickPair('🇹🇿', 'Tanzania', 'TZS', 0.235),
-  _QuickPair('🇺🇬', 'Uganda', 'UGX', 0.155),
-  _QuickPair('🇨🇦', 'Canada', 'CAD', 450.2),
+  _QuickPair('🇫🇷', 'France', 'EUR'),
+  _QuickPair('🇳🇬', 'Nigeria', 'NGN'),
+  _QuickPair('🇬🇭', 'Ghana', 'GHS'),
+  _QuickPair('🇰🇪', 'Kenya', 'KES'),
+  _QuickPair('🇬🇧', 'United Kingdom', 'GBP'),
+  _QuickPair('🇿🇲', 'Zambia', 'ZMW'),
+  _QuickPair('🇸🇳', 'Senegal', 'XOF'),
+  _QuickPair('🇧🇫', 'Burkina Faso', 'XOF'),
+  _QuickPair('🇺🇸', 'United States', 'USD'),
+  _QuickPair('🇨🇮', "Côte d'Ivoire", 'XOF'),
+  _QuickPair('🇿🇦', 'South Africa', 'ZAR'),
+  _QuickPair('🇷🇼', 'Rwanda', 'RWF'),
+  _QuickPair('🇹🇿', 'Tanzania', 'TZS'),
+  _QuickPair('🇺🇬', 'Uganda', 'UGX'),
+  _QuickPair('🇨🇦', 'Canada', 'CAD'),
 ];
 
 class QuickTransferScreen extends StatefulWidget {
@@ -148,7 +153,7 @@ class _QuickTransferScreenState extends State<QuickTransferScreen> {
           children: [
             Container(width: 7, height: 7, decoration: BoxDecoration(color: AppColors.success, shape: BoxShape.circle)),
             const SizedBox(width: 6),
-            Text("Rates updated in the last 30 min",
+            Text("Live rates on the next screen",
                 style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.success)),
           ],
         ),
@@ -206,9 +211,9 @@ class _QuickTransferScreenState extends State<QuickTransferScreen> {
                       const SizedBox(height: 10),
                       Row(
                         children: [
-                          _chip("Momo"),
+                          _chip("Mobile money"),
                           const SizedBox(width: 8),
-                          _chip("Wallet"),
+                          if (_destination.isEversendCorridor) _chip("Bank"),
                         ],
                       ),
                       const SizedBox(height: 12),

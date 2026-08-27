@@ -130,8 +130,11 @@ class _CardToCardTransferScreenState extends State<CardToCardTransferScreen> {
       return;
     }
 
-    Provider.of<UserLoginStateProvider>(context, listen: false)
-        .updateBankBalance('debit', amount.toStringAsFixed(2));
+    // Always USD (currency is hardcoded "USD" in the request above),
+    // so this specific debit was already correct — switched to the
+    // real-balance sync for consistency with every other send screen.
+    await Provider.of<UserLoginStateProvider>(context, listen: false)
+        .syncBalanceFromEversend(widget.userAuthKey);
 
     setState(() {
       _isSending = false;

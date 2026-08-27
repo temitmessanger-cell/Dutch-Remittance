@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const { eversend } = require('../eversendClient');
 const { requireAppUser } = require('../middleware/requireAppUser');
 const { supabaseAdmin } = require('../supabaseClient');
+const { debitIfSufficient, credit, MIN_DEPOSIT_USD, MAX_DEPOSIT_USD } = require('../walletLedger');
 
 const router = express.Router();
 
@@ -198,7 +199,29 @@ router.post('/user', requireAppUser, async (req, res, next) => {
     }
 
     const data = await eversend.post('/cards/user', eversendBody);
-    const cardUserId = data?.id ?? data?.data?.id ?? data?.userId;
+    // Eversend's own docs confirm the field is "userId" ("the card
+    // userId is the key needed when creating a new card") — checked
+    // first, with id/data.userId/data.id as defensive fallbacks in
+    // case the real response nests differently than the docs' prose
+    // implies (no example response body is published to confirm the
+    // exact shape/depth).
+    const cardUserId =
+      data?.userId ?? data?.id ?? data?.data?.userId ?? data?.data?.id;
+
+    if (!cardUserId) {
+      // Never report success without a usable ID — this used to
+      // silently respond 200 with `cardUserId: undefined` written to
+      // both tables, which meant _issueCard() on the next screen
+      // always failed later with a confusing "identity profile
+      // wasn't saved correctly" message that pointed the user at the
+      // wrong step. Fail here, at the point that's actually broken,
+      // with the real Eversend response attached so the cause is
+      // visible immediately instead of one screen later.
+      return res.status(502).json({
+        error: "Creating your cardholder profile didn't complete. Please try again, or contact support if this keeps happening.",
+        raw: data,
+      });
+    }
 
     await supabaseAdmin
       .from('profiles')
@@ -211,7 +234,7 @@ router.post('/user', requireAppUser, async (req, res, next) => {
       ...kycRow,
     });
 
-    res.json(data);
+    res.json({ ...data, userId: cardUserId, id: cardUserId });
   } catch (err) {
     next(err);
   }
@@ -270,6 +293,24 @@ router.post('/', requireAppUser, async (req, res, next) => {
     const kycSkipFee = skipKyc ? KYC_SKIP_FEE : 0;
     const totalFee = +(cardCreationFee + kycSkipFee).toFixed(2);
 
+    // Real balance check: the user is about to be charged the card's
+    // initial funding amount plus Dutch Remit's own creation fee —
+    // both are a real debit against their tracked balance, and this
+    // route previously had no check on either. Cards are always
+    // issued in USD (confirmed against Eversend's own docs), so
+    // `amount` here is already the right unit to check directly.
+    if (Number(amount) < MIN_DEPOSIT_USD || Number(amount) > MAX_DEPOSIT_USD) {
+      return res.status(400).json({ error: `Card funding amount must be between \$${MIN_DEPOSIT_USD} and \$${MAX_DEPOSIT_USD}.` });
+    }
+    const totalChargeUsd = +(Number(amount) + totalFee).toFixed(2);
+    const debitResult = await debitIfSufficient(req.user.id, totalChargeUsd, 'card creation + funding');
+    if (!debitResult.ok) {
+      return res.status(402).json({
+        error: `Your balance (\$${debitResult.currentBalance.toFixed(2)}) doesn't cover this card's funding amount plus fees (\$${totalChargeUsd.toFixed(2)}). Add funds and try again.`,
+        currentBalance: debitResult.currentBalance,
+      });
+    }
+
     const data = await eversend.post('/cards', {
       title,
       color: req.body.color || 'blue',
@@ -280,9 +321,25 @@ router.post('/', requireAppUser, async (req, res, next) => {
       isNonSubscription,
     });
 
+    // Same silent-failure risk as POST /cards/user: if Eversend's
+    // real response doesn't nest the id the way this expects, a
+    // broken row (eversend_card_id: null) used to get inserted
+    // anyway and the endpoint still reported 200 — the card looked
+    // "created" in the app, but every later fund/withdraw/view call
+    // hit requireOwnedCard's lookup by eversend_card_id, found
+    // nothing, and failed with "card not found" one screen later.
+    // Fail here instead, where the real problem is.
+    const eversendCardId = data?.id ?? data?.data?.id ?? data?.cardId ?? data?.data?.cardId;
+    if (!eversendCardId) {
+      return res.status(502).json({
+        error: "Creating your card didn't complete. Please try again, or contact support if this keeps happening.",
+        raw: data,
+      });
+    }
+
     await supabaseAdmin.from('cards').insert({
       user_id: req.user.id,
-      eversend_card_id: data?.id ?? data?.data?.id ?? null,
+      eversend_card_id: eversendCardId,
       title,
       color: req.body.color || 'blue',
       kind: 'virtual',
@@ -312,7 +369,7 @@ router.post('/', requireAppUser, async (req, res, next) => {
       raw_response: { cardFeeType, skipKyc: !!skipKyc, cardCreationFee, kycSkipFee },
     });
 
-    res.json({ ...data, feeCharged: { cardCreationFee, kycSkipFee, totalFee } });
+    res.json({ ...data, id: eversendCardId, cardId: eversendCardId, feeCharged: { cardCreationFee, kycSkipFee, totalFee } });
   } catch (err) {
     next(err);
   }
@@ -415,6 +472,19 @@ router.post('/instant', requireAppUser, async (req, res, next) => {
     // --- Step 2: issue the card immediately ---
     const title = req.body.title || `${req.body.color || 'blue'} card`;
     const color = req.body.color || 'blue';
+
+    // Real balance check — same reasoning as the standard card
+    // creation route above: the instant tier's flat fee plus the
+    // funding amount is a real debit, previously unchecked.
+    const totalChargeUsd = +(Number(amount) + INSTANT_CARD_FEE).toFixed(2);
+    const debitResult = await debitIfSufficient(req.user.id, totalChargeUsd, 'instant card creation + funding');
+    if (!debitResult.ok) {
+      return res.status(402).json({
+        error: `Your balance (\$${debitResult.currentBalance.toFixed(2)}) doesn't cover this card's funding amount plus the \$${INSTANT_CARD_FEE.toFixed(2)} instant fee. Add funds and try again.`,
+        currentBalance: debitResult.currentBalance,
+      });
+    }
+
     const data = await eversend.post('/cards', {
       title,
       color,
@@ -425,9 +495,19 @@ router.post('/instant', requireAppUser, async (req, res, next) => {
       isNonSubscription: true,
     });
 
+    // Same fail-loud fix as POST / above — never insert a card row
+    // with no real Eversend ID behind it.
+    const eversendCardId = data?.id ?? data?.data?.id ?? data?.cardId ?? data?.data?.cardId;
+    if (!eversendCardId) {
+      return res.status(502).json({
+        error: "Creating your card didn't complete. Please try again, or contact support if this keeps happening.",
+        raw: data,
+      });
+    }
+
     await supabaseAdmin.from('cards').insert({
       user_id: req.user.id,
-      eversend_card_id: data?.id ?? data?.data?.id ?? null,
+      eversend_card_id: eversendCardId,
       title,
       color,
       kind: 'virtual',
@@ -459,7 +539,7 @@ router.post('/instant', requireAppUser, async (req, res, next) => {
       raw_response: { tier: 'instant', instantCardFee: INSTANT_CARD_FEE },
     });
 
-    res.json({ ...data, feeCharged: { instantCardFee: INSTANT_CARD_FEE, totalFee: INSTANT_CARD_FEE } });
+    res.json({ ...data, id: eversendCardId, cardId: eversendCardId, feeCharged: { instantCardFee: INSTANT_CARD_FEE, totalFee: INSTANT_CARD_FEE } });
   } catch (err) {
     next(err);
   }
@@ -535,12 +615,35 @@ router.get('/transactions/all', requireAppUser, async (req, res, next) => {
 // POST /api/v1/cards/fund — Body: { cardId, amount, currency }
 router.post('/fund', requireAppUser, async (req, res, next) => {
   try {
-    const { cardId, amount, currency } = req.body || {};
+    const { cardId, amount, currency, amountUsd } = req.body || {};
     if (!cardId || !amount || !currency) {
       return res.status(400).json({ error: 'cardId, amount and currency are required.' });
     }
     const card = await requireOwnedCard(req, res, cardId);
     if (!card) return;
+
+    // Real balance check before funding a card — a card top-up is a
+    // real debit from the user's tracked wallet balance, and
+    // previously had no check against it at all. When funding from a
+    // non-USD wallet (e.g. XAF), the caller is expected to supply
+    // amountUsd using the rate already shown on the fund screen;
+    // falling back to the raw `amount` is only correct when currency
+    // is genuinely USD.
+    const chargeAmountUsd = Number(amountUsd ?? (currency === 'USD' ? amount : null));
+    if (!(chargeAmountUsd > 0)) {
+      return res.status(400).json({ error: 'A valid amountUsd is required to check your balance for this currency.' });
+    }
+    if (chargeAmountUsd < MIN_DEPOSIT_USD || chargeAmountUsd > MAX_DEPOSIT_USD) {
+      return res.status(400).json({ error: `Card top-up amount must be between \$${MIN_DEPOSIT_USD} and \$${MAX_DEPOSIT_USD}.` });
+    }
+    const debitResult = await debitIfSufficient(req.user.id, chargeAmountUsd, `card fund (${cardId})`);
+    if (!debitResult.ok) {
+      return res.status(402).json({
+        error: `Your balance (\$${debitResult.currentBalance.toFixed(2)}) doesn't cover this top-up. Add funds and try again.`,
+        currentBalance: debitResult.currentBalance,
+      });
+    }
+
     const data = await eversend.post('/cards/fund', { cardId, amount, currency });
 
     await supabaseAdmin.from('transactions').insert({
@@ -563,13 +666,28 @@ router.post('/fund', requireAppUser, async (req, res, next) => {
 // POST /api/v1/cards/withdraw — Body: { cardId, amount, currency }
 router.post('/withdraw', requireAppUser, async (req, res, next) => {
   try {
-    const { cardId, amount, currency } = req.body || {};
+    const { cardId, amount, currency, amountUsd } = req.body || {};
     if (!cardId || !amount || !currency) {
       return res.status(400).json({ error: 'cardId, amount and currency are required.' });
     }
     const card = await requireOwnedCard(req, res, cardId);
     if (!card) return;
     const data = await eversend.post('/cards/withdraw', { cardId, amount, currency });
+
+    // Credit the withdrawn amount back to the user's tracked
+    // balance — the card's money is genuinely returning to their
+    // wallet, so their real balance needs to reflect that the same
+    // way a deposit does. Best-effort: if this fails, the card
+    // withdrawal itself has already completed on Eversend's side, so
+    // the transaction is still recorded and reported as successful;
+    // a missed ledger credit here needs a manual reconciliation
+    // rather than pretending the whole withdrawal failed.
+    try {
+      const creditAmountUsd = Number(amountUsd ?? (currency === 'USD' ? amount : null));
+      if (creditAmountUsd > 0) {
+        await credit(req.user.id, creditAmountUsd, `card withdraw (${cardId})`);
+      }
+    } catch (_) {}
 
     await supabaseAdmin.from('transactions').insert({
       user_id: req.user.id,
@@ -709,6 +827,23 @@ router.post('/link', requireAppUser, async (req, res, next) => {
 
     if (linkError) return res.status(500).json({ error: 'Could not link your card.' });
 
+    // Real balance check for the card-link/retrieval fee — this used
+    // to insert a transaction row for CARD_LINK_FEE with no check at
+    // all against the user's actual balance.
+    const debitResult = await debitIfSufficient(req.user.id, CARD_LINK_FEE, 'card link/retrieval fee');
+    if (!debitResult.ok) {
+      // The card row above is already inserted at this point — rather
+      // than try to unwind that insert (risking a partial, confusing
+      // state), remove it and report the failure cleanly so the user
+      // isn't left with a "linked" card they were never actually
+      // charged for.
+      await supabaseAdmin.from('linked_cards').delete().eq('id', linkedCard.id);
+      return res.status(402).json({
+        error: `Your balance (\$${debitResult.currentBalance.toFixed(2)}) doesn't cover the \$${CARD_LINK_FEE.toFixed(2)} link fee. Add funds and try again.`,
+        currentBalance: debitResult.currentBalance,
+      });
+    }
+
     await supabaseAdmin.from('transactions').insert({
       user_id: req.user.id,
       type: 'card_link_fee',
@@ -828,6 +963,40 @@ router.post('/transfer', requireAppUser, async (req, res, next) => {
       .maybeSingle();
     if (toError || !toCard) {
       return res.status(400).json({ error: "That destination card couldn't be found." });
+    }
+
+    // Real fund-safety check — this route previously recorded a
+    // card_transfers row and two transactions rows with NO check on
+    // whether the sender's tracked balance actually covered the
+    // amount, and no ledger entry at all. A user could transfer to
+    // another user's card an unlimited number of times with nothing
+    // backing it. Fixed: debit the sender first (refusing if
+    // insufficient), and for a transfer to a different user, credit
+    // them the same amount — same-user own-card transfers don't need
+    // a credit since the money conceptually stays with the same
+    // person, just moves between two of their cards.
+    const chargeAmountUsd = Number(req.body.amountUsd ?? (currency === 'USD' ? amount : null));
+    if (!(chargeAmountUsd > 0)) {
+      return res.status(400).json({ error: 'A valid amountUsd is required to check your balance for this currency.' });
+    }
+    const debitResult = await debitIfSufficient(req.user.id, chargeAmountUsd, `card transfer to ${isOwnTransfer ? 'own card' : 'another user'}`);
+    if (!debitResult.ok) {
+      return res.status(402).json({
+        error: `Your balance (\$${debitResult.currentBalance.toFixed(2)}) doesn't cover this transfer. Add funds and try again.`,
+        currentBalance: debitResult.currentBalance,
+      });
+    }
+    if (!isOwnTransfer) {
+      // If crediting the recipient fails after the sender's balance
+      // was already debited, refund the sender immediately rather
+      // than leave the money in limbo — the transfer as a whole must
+      // not proceed if both legs can't complete.
+      try {
+        await credit(toUserId, chargeAmountUsd, `card transfer received from ${req.user.id}`);
+      } catch (creditErr) {
+        await credit(req.user.id, chargeAmountUsd, 'card transfer refund (recipient credit failed)');
+        return res.status(500).json({ error: 'Could not complete the transfer. Your balance has not been charged.' });
+      }
     }
 
     const reference = `DR-CT-${Date.now()}`;

@@ -1,7 +1,7 @@
 // page slide transition effect
 import 'package:flutter/material.dart';
 
-class SlideRightRoute extends PageRouteBuilder {
+class SlideRightRoute<T> extends PageRouteBuilder<T> {
   final Widget page;
   SlideRightRoute({required this.page})
       : super(

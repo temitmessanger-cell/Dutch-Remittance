@@ -53,9 +53,16 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   int _heroIndex = 0;
 
   // Verified, hotlinkable Unsplash photography spanning the corridors
-  // Dutch Remit serves — a diaspora sender, West/Central African city
-  // life, and market color — with graceful fallback if any URL ever
-  // fails to load (see _HeroPhoto).
+  // Dutch Remit serves — Lagos, Accra and Nairobi city life, plus the
+  // original diaspora-sender shot — with graceful fallback if any URL
+  // ever fails to load (see _HeroPhoto). Every URL below was fetched
+  // and confirmed individually (photo page -> real images.unsplash.com
+  // asset URL, all "Free to use under the Unsplash License") — the
+  // three added this pass replace an earlier version that used
+  // Unsplash's newer short-ID slugs directly after "photo-", which is
+  // not a real CDN asset path; only the first slide's classic
+  // timestamp-format ID actually resolved, which is why the carousel
+  // only ever showed one photo.
   static const List<_HeroSlide> _heroSlides = [
     _HeroSlide(
       url:
@@ -63,15 +70,18 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       caption: 'Wherever home is, it stays reachable.',
     ),
     _HeroSlide(
-      url: 'https://images.unsplash.com/photo-fGd8paHzN98?auto=format&fit=crop&w=1400&q=80',
+      url:
+          'https://images.unsplash.com/photo-1559833064-6f4573ec1ac9?auto=format&fit=crop&w=1400&q=80',
       caption: 'Built for the cities the diaspora calls home.',
     ),
     _HeroSlide(
-      url: 'https://images.unsplash.com/photo-SfPOkp6-2eA?auto=format&fit=crop&w=1400&q=80',
-      caption: 'From Abidjan to Douala, money that moves like people do.',
+      url:
+          'https://images.unsplash.com/photo-1741779628586-0fd1269de8cd?auto=format&fit=crop&w=1400&q=80',
+      caption: 'From Accra to Lagos, money that moves like people do.',
     ),
     _HeroSlide(
-      url: 'https://images.unsplash.com/photo-Zjm5QsMVNYM?auto=format&fit=crop&w=1400&q=80',
+      url:
+          'https://images.unsplash.com/photo-1664181220731-06219378d8c7?auto=format&fit=crop&w=1400&q=80',
       caption: 'Every transfer is somebody\'s Monday made easier.',
     ),
   ];
@@ -490,6 +500,46 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             ),
             const SizedBox(height: 28),
 
+            // ==================== CARD SHOWCASE ====================
+            // A dedicated hero moment for the physical/virtual card
+            // product — distinct from the small credit-card icon in
+            // the feature list below, and from the functional card
+            // rendered on the Wallet screen (wallet_screen.dart's
+            // _buildCardVisual, which shows a real linked card's
+            // masked number and fetched brand logo). This is a
+            // marketing showpiece: same brand language (navy,
+            // "DR" monogram, gold accents) as the real card, with a
+            // subtle 3D tilt and layered shadow so it reads as a
+            // tangible object, not a flat icon.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Your card, wherever you spend',
+                      style: GoogleFonts.manrope(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: ink)),
+                  const SizedBox(height: 4),
+                  Text(
+                      'A virtual USD Dutch Remit card, funded straight from your wallet — created in seconds, spendable anywhere.',
+                      style: GoogleFonts.manrope(
+                          fontSize: 14, height: 1.5, color: inkMuted)),
+                  const SizedBox(height: 22),
+                  Center(
+                    child: _fadeSlide(
+                      _DutchRemitCardMockup(
+                          heroTop: heroTop, heroBottom: heroBottom, gold: gold),
+                      0.55,
+                      1.0,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 36),
+
             // ==================== FEATURES ====================
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
@@ -880,6 +930,182 @@ class _StatTile extends StatelessWidget {
 /// The product-preview card that anchors the whole screen: shows a
 /// mock "You send 100 USD → They receive 62,650 XAF" transfer, so a
 /// first-time visitor immediately sees what the product does.
+/// A marketing-grade mockup of the Dutch Remit virtual USD card —
+/// same brand language as the real card rendered on the Wallet
+/// screen (navy body, "DR" monogram, gold accents), but built as a
+/// hero showpiece: a slight 3D tilt via Transform, a soft chip
+/// graphic, a realistic masked card number, and a two-layer shadow
+/// (a tight dark shadow plus a wider gold glow) so it reads as a
+/// tangible object sitting above the page rather than a flat icon.
+/// Uses placeholder digits and a generic "VISA"-style wordmark since
+/// this screen is shown before any account exists — never a real
+/// card number.
+class _DutchRemitCardMockup extends StatelessWidget {
+  final Color heroTop;
+  final Color heroBottom;
+  final Color gold;
+
+  const _DutchRemitCardMockup(
+      {required this.heroTop, required this.heroBottom, required this.gold});
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform.rotate(
+      angle: -0.045,
+      child: Container(
+        width: 320,
+        height: 200,
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [heroTop, heroBottom],
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            // Wide, soft gold glow — the "premium object" cue.
+            BoxShadow(
+              color: gold.withOpacity(0.28),
+              blurRadius: 46,
+              offset: const Offset(0, 22),
+              spreadRadius: -6,
+            ),
+            // Tight, dark contact shadow so the card feels grounded.
+            BoxShadow(
+              color: heroTop.withOpacity(0.35),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            // Faint diagonal sheen — a subtle highlight suggesting a
+            // glossy/metallic card surface without needing an image.
+            Positioned(
+              top: -40,
+              right: -60,
+              child: Transform.rotate(
+                angle: -0.5,
+                child: Container(
+                  width: 180,
+                  height: 260,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white.withOpacity(0.10),
+                        Colors.white.withOpacity(0.0),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            color: gold,
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text('D',
+                              style: GoogleFonts.manrope(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: heroTop)),
+                        ),
+                        const SizedBox(width: 9),
+                        Text('Dutch Remit',
+                            style: GoogleFonts.manrope(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white)),
+                      ],
+                    ),
+                    Text('USD',
+                        style: GoogleFonts.manrope(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2,
+                            color: Colors.white.withOpacity(0.65))),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                // Chip graphic — a small rounded-rect with etched
+                // lines, evoking an EMV chip without needing an asset.
+                Container(
+                  width: 40,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [gold.withOpacity(0.9), gold.withOpacity(0.55)],
+                    ),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(height: 1, color: heroTop.withOpacity(0.3)),
+                      const SizedBox(height: 6),
+                      Container(height: 1, color: heroTop.withOpacity(0.3)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text('•••• •••• •••• 4471',
+                    style: GoogleFonts.manrope(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 2.2,
+                        color: Colors.white)),
+                const Spacer(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text('DUTCH REMIT USER',
+                        style: GoogleFonts.manrope(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.8,
+                            color: Colors.white.withOpacity(0.75))),
+                    // A generic scheme wordmark rather than a real
+                    // Visa/Mastercard logo asset — this screen has no
+                    // linked card yet, so nothing brand-specific to
+                    // fetch (contrast wallet_screen.dart, which pulls
+                    // the real card's brand PNG for an actual card).
+                    Text('VISA',
+                        style: GoogleFonts.manrope(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            fontStyle: FontStyle.italic,
+                            letterSpacing: 0.5,
+                            color: Colors.white.withOpacity(0.9))),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SendPreviewCard extends StatelessWidget {
   final Color heroTop;
   final Color gold;

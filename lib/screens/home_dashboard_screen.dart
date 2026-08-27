@@ -8,6 +8,8 @@ import 'package:dutch_remit/screens/enter_code_manually_screen.dart';
 import 'package:dutch_remit/screens/top_up_screen.dart';
 import 'package:dutch_remit/screens/withdraw_screen.dart';
 import 'package:dutch_remit/screens/virtual_accounts_screen.dart';
+import 'package:dutch_remit/screens/crypto_screen.dart';
+import 'package:dutch_remit/screens/currency_swap_screen.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
 
 import 'package:provider/provider.dart';
@@ -367,6 +369,63 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
                       child: quickActions,
                     ),
                   ],
+                ),
+              ),
+
+              // ── SWAP CARD ── A visible, dedicated home-screen
+              // entry point for converting between the wallet's
+              // supported currencies — not buried in the overflow
+              // menu, matching how prominent this feature should be
+              // per product requirement. Real quote + real execute
+              // (CurrencySwapScreen -> POST /api/v1/rates/exchange-quotation,
+              // POST /api/v1/rates/exchange).
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                child: InkWell(
+                  onTap: () => Navigator.push(
+                          context,
+                          SlideRightRoute(
+                              page: CurrencySwapScreen(
+                                  user: widget.user, userAuthKey: widget.userAuthKey)))
+                      .whenComplete(() => setState(() {})),
+                  borderRadius: BorderRadius.circular(AppRadii.lg),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(AppRadii.lg),
+                      boxShadow: AppShadows.card,
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: Icon(Icons.swap_horiz_rounded, color: AppColors.primary, size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text("Swap currencies",
+                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                              const SizedBox(height: 2),
+                              Text("Convert between USD, XAF, NGN and GHS in your wallet",
+                                  style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                      ],
+                    ),
+                  ),
                 ),
               ),
 
@@ -772,6 +831,13 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
             Navigator.push(context,
                     SlideRightRoute(page: MyQrCodeScreen(user: widget.user)))
                 .whenComplete(() => setState(() {}));
+          } else if (value == _ScanOptions.Crypto) {
+            Navigator.push(
+                    context,
+                    SlideRightRoute(
+                        page: CryptoScreen(
+                            user: widget.user, userAuthKey: widget.userAuthKey)))
+                .whenComplete(() => setState(() {}));
           } else {
             Navigator.push(
                     context,
@@ -803,7 +869,15 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
             child: Row(children: [
               Icon(Icons.account_balance_rounded, size: 18, color: AppColors.ink),
               const SizedBox(width: 10),
-              Text("Virtual Accounts"),
+              Text("Bank Accounts"),
+            ]),
+          ),
+          PopupMenuItem(
+            value: _ScanOptions.Crypto,
+            child: Row(children: [
+              Icon(Icons.currency_bitcoin_rounded, size: 18, color: AppColors.ink),
+              const SizedBox(width: 10),
+              Text("View USDT Address"),
             ]),
           ),
         ],
@@ -1130,6 +1204,6 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
   }
 }
 
-enum _ScanOptions { ScanQRCode, MyQRCode, VirtualAccounts }
+enum _ScanOptions { ScanQRCode, MyQRCode, VirtualAccounts, Crypto }
 
 

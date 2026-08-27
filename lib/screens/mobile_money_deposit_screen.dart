@@ -7,10 +7,13 @@ import 'package:dutch_remit/utilities/african_country_data.dart';
 import 'package:dutch_remit/utilities/custom_date_grouping.dart';
 import 'package:dutch_remit/utilities/make_api_request.dart';
 import 'package:dutch_remit/components/shared/transaction_receipt_dialog.dart';
+import 'package:dutch_remit/components/shared/phone_number_field.dart';
 
 /// The real, end-to-end mobile-money deposit flow: pick the payout
 /// country, enter a phone number, request an OTP from Eversend
-/// (POST /api/v1/collections/otp), enter the code you were texted,
+/// (POST /api/v1/collections/otp — delivered via WhatsApp, not SMS;
+/// SMS delivery for this OTP doesn't reliably work, confirmed
+/// directly with the Eversend team), enter the code sent to WhatsApp,
 /// confirm the deposit (POST /api/v1/collections/momo with the OTP
 /// pin + pinId), and land on a receipt screen showing the refreshed
 /// wallet balance (GET /api/v1/wallets) — not a fake instant credit.
@@ -41,6 +44,7 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
   _DepositStep _step = _DepositStep.enterPhone;
   AfricanCountryInfo _country = kLiveEversendCorridors.first;
   final TextEditingController _phoneController = TextEditingController();
+  String _fullPhoneNumber = '';
   final List<TextEditingController> _otpControllers =
       List.generate(6, (_) => TextEditingController());
 
@@ -97,9 +101,9 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
       return;
     }
 
-    final phone = _phoneController.text.trim();
+    final phone = _fullPhoneNumber;
     if (phone.isEmpty || !phone.startsWith('+')) {
-      setState(() => _errorMessage = "Enter the phone number in international format, e.g. +256712345678.");
+      setState(() => _errorMessage = "Enter your phone number.");
       return;
     }
 
@@ -141,7 +145,7 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
       _errorMessage = null;
     });
 
-    final phone = _phoneController.text.trim();
+    final phone = _fullPhoneNumber;
     final transactionRef = _transactionRef;
 
     final result = await sendData(
@@ -154,7 +158,12 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
         "otp": {"pin": pin, "pinId": _otpPinId},
         "transactionRef": transactionRef,
         "depositSpeed": widget.depositSpeed,
-        "customer": {"name": _displayName()},
+        // Eversend's momo collection endpoint expects `customer` as a
+        // plain string (the customer's name), not an object — sending
+        // {"name": ...} instead of the bare name is exactly what
+        // produced the "customer must be a string" error reported
+        // against this screen.
+        "customer": _displayName(),
       },
       authKey: widget.userAuthKey,
     );
@@ -186,8 +195,20 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
     });
 
     if (!mounted) return;
-    Provider.of<UserLoginStateProvider>(context, listen: false)
-        .updateBankBalance('credit', widget.amount.toStringAsFixed(2));
+    // Real fix: the previous version called
+    // updateBankBalance('credit', widget.amount...) here — but
+    // widget.amount is in the DESTINATION currency (XAF for mobile
+    // money/Orange Money, per _amountCurrencyLabel in top_up_screen.dart),
+    // not USD, while _bankBalance is a USD-tracked figure with no
+    // currency awareness. Crediting the raw XAF number directly would
+    // inflate the displayed balance by roughly 600x for a Cameroon
+    // deposit. Fixed: pull the real balance straight from Eversend
+    // instead of guessing at a local increment — this is exactly what
+    // syncBalanceFromEversend() already does elsewhere in the app, and
+    // is the only way to get the correct number without duplicating a
+    // currency-conversion call here.
+    await Provider.of<UserLoginStateProvider>(context, listen: false)
+        .syncBalanceFromEversend(widget.userAuthKey);
 
     // Best-effort refresh of the real Eversend wallet balance — shown
     // on the receipt screen when it succeeds; the deposit itself has
@@ -242,10 +263,10 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
       children: [
-        Text("Depositing \$${widget.amount.toStringAsFixed(2)}",
+        Text("Depositing ${widget.amount.toStringAsFixed(2)} ${_country.currencyCode}",
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink)),
         const SizedBox(height: 6),
-        Text("We'll text a one-time code to confirm the mobile money charge.",
+        Text("We'll send a one-time code to your WhatsApp to confirm the mobile money charge.",
             style: TextStyle(fontSize: 13.5, color: AppColors.textMuted)),
         const SizedBox(height: 22),
         Text("COUNTRY", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textMuted)),
@@ -275,25 +296,11 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
         const SizedBox(height: 18),
         Text("PHONE NUMBER", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textMuted)),
         const SizedBox(height: 8),
-        TextField(
+        PhoneNumberField(
+          initialCountryCode: _country.countryCode,
           controller: _phoneController,
-          keyboardType: TextInputType.phone,
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.ink),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: Colors.white,
-            hintText: "+256712345678",
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: AppColors.border),
-                borderRadius: BorderRadius.circular(AppRadii.md)),
-            focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: AppColors.primary, width: 1.6),
-                borderRadius: BorderRadius.circular(AppRadii.md)),
-            border: OutlineInputBorder(
-                borderSide: BorderSide(color: AppColors.border),
-                borderRadius: BorderRadius.circular(AppRadii.md)),
-          ),
+          hintText: "712345678",
+          onChanged: (fullNumber) => setState(() => _fullPhoneNumber = fullNumber),
         ),
         if (_errorMessage != null) ...[
           const SizedBox(height: 12),
@@ -325,7 +332,7 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
       children: [
         Text("Enter the code", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink)),
         const SizedBox(height: 6),
-        Text("We sent a 6-digit code to ${_phoneController.text.trim()}.",
+        Text("Check WhatsApp on $_fullPhoneNumber for your 6-digit code.",
             style: TextStyle(fontSize: 13.5, color: AppColors.textMuted)),
         const SizedBox(height: 22),
         Row(
@@ -408,7 +415,7 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink)),
         const SizedBox(height: 8),
         Text(
-          "\$${widget.amount.toStringAsFixed(2)} via ${_country.countryName} mobile money is on its way.",
+          "${widget.amount.toStringAsFixed(2)} ${_country.currencyCode} via ${_country.countryName} mobile money is on its way.",
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 13.5, color: AppColors.textMuted),
         ),

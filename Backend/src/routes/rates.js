@@ -2,7 +2,7 @@ const express = require('express');
 const { eversend } = require('../eversendClient');
 const { getQuotation } = require('../paymentRouter');
 const { supabaseAdmin } = require('../supabaseClient');
-const { optionalAppUser } = require('../middleware/requireAppUser');
+const { optionalAppUser, requireAppUser } = require('../middleware/requireAppUser');
 
 const router = express.Router();
 
@@ -81,6 +81,51 @@ router.post('/exchange-quotation', async (req, res, next) => {
       amount,
     });
     res.json(applyExchangeMarkup({ data }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/v1/rates/exchange — executes a wallet-to-wallet swap
+// against a quotation token from POST /exchange-quotation above.
+// Body: { token, sourceAmountUsd? }
+//
+// This is the "Swap" feature on the home screen: converting a
+// balance the user already holds from one currency to another within
+// their own wallet — not sending money out to anyone. Confirmed real
+// endpoint: POST /exchanges (same one crypto.js's withdrawal route
+// already uses for its coin-to-fiat leg).
+//
+// Deliberately does NOT touch wallet_ledger's USD total: a pure
+// currency swap converts the user's own money from one currency to
+// another within the same wallet — their real USD-equivalent value
+// doesn't change (aside from the small margin already baked into the
+// quoted rate via applyExchangeMarkup), so there's nothing to
+// credit/debit in the ledger. What matters here is only that the
+// swap genuinely executed on Eversend's side — the transaction row
+// below is the audit record of that.
+router.post('/exchange', requireAppUser, async (req, res, next) => {
+  try {
+    const { token } = req.body || {};
+    if (!token) {
+      return res.status(400).json({ error: 'token is required — call POST /rates/exchange-quotation first.' });
+    }
+
+    const data = await eversend.post('/exchanges', { token });
+
+    await supabaseAdmin.from('transactions').insert({
+      user_id: req.user.id,
+      type: 'exchange',
+      status: data?.status ?? 'completed',
+      amount: data?.sourceAmount ?? req.body.sourceAmount ?? null,
+      currency: data?.sourceCurrency ?? req.body.sourceCurrency ?? null,
+      method: 'exchange',
+      eversend_reference: data?.transactionRef ?? data?.reference ?? null,
+      raw_response: data,
+      provider: 'eversend',
+    });
+
+    res.json(data);
   } catch (err) {
     next(err);
   }

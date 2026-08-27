@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
 import 'package:dutch_remit/utilities/slide_right_route.dart';
 import 'package:dutch_remit/utilities/african_country_data.dart';
+import 'package:dutch_remit/utilities/url_external_launcher.dart';
 import 'package:dutch_remit/components/international_transfer/african_country_picker_sheet.dart';
 import 'package:dutch_remit/screens/africa_corridor_screen.dart';
 import 'package:dutch_remit/screens/top_up_screen.dart';
@@ -352,6 +353,32 @@ class _BuildersApiRequestScreenState extends State<_BuildersApiRequestScreen> {
     super.dispose();
   }
 
+  /// Opens the device's real mail app with a pre-filled message to
+  /// ikomihenry@dubiabank.com, carrying whatever the developer typed
+  /// in. This is the actual submission — there's no backend endpoint
+  /// for API-access requests, so a real mailto: deep link is the
+  /// honest way to make "Request access" genuinely send something,
+  /// rather than just flipping a local success flag with nothing
+  /// behind it (which is what this screen did before).
+  void _submitRequest() {
+    final name = _nameController.text.trim();
+    final email = _emailController.text.trim();
+    final company = _companyController.text.trim();
+
+    final subject = Uri.encodeComponent('Dutch Remit API access request — $name');
+    final bodyLines = [
+      'Name: $name',
+      'Work email: $email',
+      if (company.isNotEmpty) 'Company: $company',
+      '',
+      '(Sent from the Dutch Remit app — For developers)',
+    ];
+    final body = Uri.encodeComponent(bodyLines.join('\n'));
+
+    launchExternalURL('mailto:ikomihenry@dubiabank.com?subject=$subject&body=$body');
+    setState(() => _submitted = true);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -385,7 +412,7 @@ class _BuildersApiRequestScreenState extends State<_BuildersApiRequestScreen> {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink)),
             const SizedBox(height: 4),
             Text(
-              "Tell us a bit about what you're building. We'll follow up by email — this doesn't submit anywhere live yet.",
+              "Tell us a bit about what you're building. Tapping Request access opens your mail app with your details ready to send.",
               style: TextStyle(fontSize: 12.5, color: AppColors.textMuted),
             ),
             const SizedBox(height: 14),
@@ -401,7 +428,7 @@ class _BuildersApiRequestScreenState extends State<_BuildersApiRequestScreen> {
                     Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: Text("Thanks — we'll be in touch.",
+                      child: Text("Opened your mail app — send it to reach us.",
                           style: TextStyle(color: AppColors.success, fontWeight: FontWeight.w600)),
                     ),
                   ],
@@ -419,7 +446,7 @@ class _BuildersApiRequestScreenState extends State<_BuildersApiRequestScreen> {
                 child: ElevatedButton(
                   onPressed: (_nameController.text.trim().isNotEmpty &&
                           _emailController.text.trim().isNotEmpty)
-                      ? () => setState(() => _submitted = true)
+                      ? _submitRequest
                       : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,

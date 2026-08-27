@@ -2,16 +2,24 @@ const express = require('express');
 const { eversend } = require('../eversendClient');
 const { requireAppUser } = require('../middleware/requireAppUser');
 const { supabaseAdmin } = require('../supabaseClient');
+const { credit } = require('../walletLedger');
 
 const router = express.Router();
 
 // Powers the "Crypto" method in top_up_screen.dart / withdraw_screen.dart.
 //
-// Dutch Remit's own margin on crypto specifically: 1% ON TOP OF
-// whatever fee Eversend (the aggregator) actually charges — distinct
-// from the general 1.2% transfer markup in paymentRouter.js, per
-// product decision. totalFee = providerFee + (providerFee * 0.01).
-const CRYPTO_PLATFORM_MARKUP_RATE = 0.01;
+// Dutch Remit's own margin on crypto: 1.2% ON TOP OF whatever fee
+// Eversend (the aggregator) actually charges — unified with the
+// general payout/deposit markup in paymentRouter.js per an explicit
+// product decision (previously this was a separate 1%, kept distinct
+// "per product decision" — that decision was reversed; crypto now
+// uses the same rate as every other fee-based rail so there's one
+// number to reason about, not three). totalFee = providerFee +
+// (providerFee * 0.012). The wallet-to-wallet currency exchange rate
+// margin in rates.js is a different mechanism (a spread baked into
+// the rate itself, not a fee) and intentionally stays separate — see
+// PRICING.md.
+const CRYPTO_PLATFORM_MARKUP_RATE = 0.012;
 
 function applyCryptoMarkup(providerFeeData) {
   // Eversend's GET /crypto/fees response shape isn't spelled out in
@@ -59,9 +67,68 @@ router.get('/assets/:coin', requireAppUser, async (req, res, next) => {
   }
 });
 
+// Coins CryptoPriceService (lib/database/crypto_price_service.dart)
+// already has real, live USD pricing for — the candidate set this
+// account is checked against. Eversend's API has no single "list
+// every supported coin" endpoint (only GET /crypto/assets/{coin},
+// per coin — confirmed against their full API reference), so a
+// "show all available coins" picker has to probe this fixed
+// candidate list rather than ask Eversend for an exhaustive one.
+const CANDIDATE_COINS = ['USDT', 'BTC', 'ETH', 'USDC'];
+
+// Small, fixed metadata (display name, icon glyph, brand color) for
+// the coins in CANDIDATE_COINS — cosmetic only, never affects which
+// coins are actually offered (that's decided by whether Eversend's
+// own /crypto/assets/{coin} returns real chains for this account).
+const COIN_DISPLAY_META = {
+  USDT: { name: 'Tether', icon: '₮', color: '26A17B' },
+  BTC: { name: 'Bitcoin', icon: '₿', color: 'F7931A' },
+  ETH: { name: 'Ethereum', icon: 'Ξ', color: '627EEA' },
+  USDC: { name: 'USD Coin', icon: '$', color: '2775CA' },
+};
+
+// GET /api/v1/crypto/supported-coins — checks every candidate coin's
+// real Eversend availability in parallel (GET /crypto/assets/{coin}
+// per coin) and returns only the ones actually enabled on this
+// account, each with its confirmed chain list plus display metadata.
+// This is what powers the "all crypto options, with icons" picker —
+// never a hardcoded "these coins definitely work" list, since
+// Eversend's own coverage is account-specific and can change without
+// notice (their words: "access to the full range of services...
+// depending on your location/account").
+router.get('/supported-coins', requireAppUser, async (req, res, next) => {
+  try {
+    const results = await Promise.all(
+      CANDIDATE_COINS.map(async (coin) => {
+        try {
+          const chains = await eversend.get(`/crypto/assets/${coin}`);
+          const list = Array.isArray(chains?.data) ? chains.data : Array.isArray(chains) ? chains : [];
+          if (!list.length) return null;
+          return {
+            coin,
+            ...COIN_DISPLAY_META[coin],
+            chains: list.map((c) => ({
+              chain: c.chain || c.network || null,
+              assetId: c.assetId || c.id || null,
+            })),
+          };
+        } catch (_) {
+          // This coin isn't enabled on this account (or the lookup
+          // failed) — simply excluded from the list, not an error for
+          // the whole endpoint.
+          return null;
+        }
+      })
+    );
+    res.json({ coins: results.filter(Boolean) });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/v1/crypto/fees — confirmed Eversend endpoint (GET
 // /crypto/fees). Returns Eversend's own fee alongside Dutch Remit's
-// 1% markup on top, pre-computed, so the app never has to duplicate
+// 1.2% markup on top, pre-computed, so the app never has to duplicate
 // this math client-side.
 router.get('/fees', requireAppUser, async (req, res, next) => {
   try {
@@ -234,11 +301,11 @@ router.post('/withdraw', requireAppUser, async (req, res, next) => {
     // the coin balance into the destination fiat wallet.
     const exchangeResult = await eversend.post('/exchanges', { token: quoteToken });
 
-    // Dutch Remit's 1% crypto markup, charged here since this is the
-    // crypto-specific step of the flow — the payout itself (step 3)
-    // still carries the general 1.2% transfer markup from
+    // Dutch Remit's 1.2% crypto markup, charged here since this is
+    // the crypto-specific step of the flow — the payout itself (step
+    // 3) still carries its own 1.2% transfer markup from
     // paymentRouter.js, so the two aren't double-charged on the same
-    // leg.
+    // leg; each leg gets one markup on its own real provider fee.
     let feeBreakdown = null;
     try {
       const feeData = await eversend.get('/crypto/fees');
@@ -246,6 +313,27 @@ router.post('/withdraw', requireAppUser, async (req, res, next) => {
     } catch (_) {
       // Non-fatal — the exchange already completed; a missing fee
       // pre-quote doesn't undo that.
+    }
+
+    // Real fund-safety credit: the coin being exchanged here was
+    // already confirmed to have genuinely arrived at the user's own
+    // Eversend crypto address (see the address-creation flow) before
+    // this exchange can run — so crediting the resulting fiat amount
+    // to their tracked wallet_ledger balance is the correct, safe
+    // direction (this is new money entering their tracked balance,
+    // backed by a real prior crypto deposit), not a debit.
+    try {
+      const destinationAmount = exchangeResult?.destinationAmount ?? exchangeResult?.data?.destinationAmount ?? amount;
+      const creditAmountUsd = destinationCurrency === 'USD'
+        ? Number(destinationAmount)
+        : null; // non-USD destination: skip auto-credit, needs a conversion step this route doesn't have context for yet
+      if (creditAmountUsd != null && creditAmountUsd > 0) {
+        await credit(req.user.id, creditAmountUsd, `crypto withdrawal (${upperCoin} -> ${destinationCurrency})`);
+      }
+    } catch (_) {
+      // Non-fatal — the exchange itself already completed on
+      // Eversend's side; a missed ledger credit needs manual
+      // reconciliation rather than failing the whole withdrawal.
     }
 
     await supabaseAdmin.from('transactions').insert({

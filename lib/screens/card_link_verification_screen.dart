@@ -168,7 +168,11 @@ class _CardLinkVerificationScreenState extends State<CardLinkVerificationScreen>
         _label("EMAIL"),
         TextField(controller: _emailController, keyboardType: TextInputType.emailAddress, decoration: _dec("john@example.com")),
         _label("PHONE"),
-        TextField(controller: _phoneController, keyboardType: TextInputType.phone, decoration: _dec("+256712345678")),
+        TextField(
+          controller: _phoneController,
+          keyboardType: TextInputType.phone,
+          decoration: _dec("+256712345678"),
+        ),
         _label("ADDRESS"),
         TextField(controller: _addressController, decoration: _dec("Street address")),
         const SizedBox(height: 18),

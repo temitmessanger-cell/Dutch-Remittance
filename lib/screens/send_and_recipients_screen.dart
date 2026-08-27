@@ -6,6 +6,7 @@ import 'package:dutch_remit/hadwin_components.dart';
 import 'package:dutch_remit/screens/my_qr_code_screen.dart';
 import 'package:dutch_remit/screens/enter_code_manually_screen.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
+import 'package:dutch_remit/components/shared/phone_number_field.dart';
 
 /// The "Recipient" sub-tab of the Send hub: pick a contact or business
 /// to pay or request money from, manage saved contacts, and see recent
@@ -445,6 +446,7 @@ class _SendAndRecipientsScreenState extends State<SendAndRecipientsScreen> {
     final emailController = TextEditingController();
     final dutchRemitIdController = TextEditingController();
     final phoneController = TextEditingController();
+    String fullPhoneNumber = '';
     String? errorText;
     bool isVerifying = false;
 
@@ -471,16 +473,10 @@ class _SendAndRecipientsScreenState extends State<SendAndRecipientsScreen> {
                         borderSide: BorderSide.none)),
               ),
               const SizedBox(height: 10),
-              TextField(
+              PhoneNumberField(
                 controller: phoneController,
-                keyboardType: TextInputType.phone,
-                decoration: InputDecoration(
-                    hintText: "Phone number",
-                    filled: true,
-                    fillColor: AppColors.surfaceAlt,
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppRadii.sm),
-                        borderSide: BorderSide.none)),
+                hintText: "Phone number",
+                onChanged: (v) => fullPhoneNumber = v,
               ),
               const SizedBox(height: 10),
               TextField(
@@ -534,7 +530,7 @@ class _SendAndRecipientsScreenState extends State<SendAndRecipientsScreen> {
                   ? null
                   : () async {
                       final name = nameController.text.trim();
-                      final phone = phoneController.text.trim();
+                      final phone = fullPhoneNumber.trim();
                       final email = emailController.text.trim();
                       final dutchRemitId = dutchRemitIdController.text.trim();
 

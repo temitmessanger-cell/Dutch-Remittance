@@ -135,14 +135,14 @@ class ProfileSettingsTabScreen extends StatelessWidget {
                 ),
               ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: _RewardsHubCard(
                 onTap: () => Navigator.push(
                     context, SlideRightRoute(page: const RewardsHubScreen())),
               ),
             ),
             Divider(height: 1, color: AppColors.divider),
-            Expanded(child: AppSettingsComponent()),
+            Expanded(child: AppSettingsComponent(user: user)),
           ],
         ),
       ),
@@ -164,7 +164,7 @@ class _RewardsHubCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadii.lg),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -177,34 +177,37 @@ class _RewardsHubCard extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 34,
+              height: 34,
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.14),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
               ),
               alignment: Alignment.center,
               child: const Icon(Icons.card_giftcard_rounded,
-                  color: Color(0xFFF5B841), size: 22),
+                  color: Color(0xFFF5B841), size: 17),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text('Tasks & Rewards',
                       style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 13.5,
                           fontWeight: FontWeight.w700,
                           color: Colors.white)),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 1),
                   Text('Complete tasks, earn coupons and fee discounts',
                       style: TextStyle(
-                          fontSize: 12.5, color: Colors.white.withOpacity(0.75))),
+                          fontSize: 11.5, color: Colors.white.withOpacity(0.75)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.7)),
+            Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.7), size: 20),
           ],
         ),
       ),

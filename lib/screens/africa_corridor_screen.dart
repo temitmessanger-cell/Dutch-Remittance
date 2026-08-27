@@ -15,6 +15,7 @@ import 'package:dutch_remit/components/shared/transaction_receipt_dialog.dart';
 import 'package:dutch_remit/utilities/make_api_request.dart';
 import 'package:dutch_remit/utilities/slide_right_route.dart';
 import 'package:dutch_remit/screens/virtual_accounts_screen.dart';
+import 'package:dutch_remit/components/shared/phone_number_field.dart';
 
 /// Which of the two structurally-similar corridors this screen is
 /// rendering. `diaspora` mirrors the Wise-style "SEND MONEY" quote
@@ -63,6 +64,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   final TextEditingController _amountController = TextEditingController(text: '100');
   final TextEditingController _recipientNameController = TextEditingController();
   final TextEditingController _recipientPhoneController = TextEditingController();
+  String _recipientFullPhone = '';
   final TextEditingController _bankAccountNumberController = TextEditingController();
   bool _saveRecipient = true;
 
@@ -188,6 +190,16 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   }
 
   void _onAmountChanged() {
+    // _totalYouPay/_platformFee are pure local computations (amount +
+    // fee, both already in state) — they must rebuild on every
+    // keystroke regardless of whether this destination has a live
+    // rate to fetch. The previous version returned early here when
+    // `hasLiveRate` was false, which meant "Total you pay" never
+    // updated at all for any destination without live FX data — a
+    // real, common case, not an edge case. setState() below is cheap
+    // (no network call), so it's always safe to call immediately;
+    // only the network-bound quote fetch below is debounced.
+    setState(() {});
     if (!_destination.hasLiveRate) return;
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 350), _fetchQuote);
@@ -324,7 +336,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     }
 
     if (_payoutMethod == 0) {
-      if (_recipientPhoneController.text.trim().isEmpty) {
+      if (_recipientFullPhone.trim().isEmpty) {
         setState(() => _errorMessage = "Enter the recipient's mobile money number.");
         return;
       }
@@ -377,7 +389,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
         "token": _quotationToken,
         "firstName": firstName,
         "lastName": lastName,
-        "phoneNumber": _recipientPhoneController.text.trim(),
+        "phoneNumber": _recipientFullPhone.trim(),
         "sourceWallet": _isDiaspora ? _sourceCurrency : (_sourceAfricanCountry?.currencyCode ?? 'USD'),
         "amount": amount,
         "amountType": "SOURCE",
@@ -463,7 +475,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
             "firstName": firstName,
             "lastName": lastName,
             "country": _destination.countryCode,
-            "phoneNumber": _recipientPhoneController.text.trim(),
+            "phoneNumber": _recipientFullPhone.trim(),
             "isBank": false,
             "isMomo": true,
           },
@@ -493,8 +505,15 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
 
     if (!mounted) return;
 
-    Provider.of<UserLoginStateProvider>(context, listen: false)
-        .updateBankBalance('debit', amount.toStringAsFixed(2));
+    // Real fix: `amount` is in the selected source currency (USD, XAF,
+    // or another African currency depending on _isDiaspora and which
+    // source was picked) — debiting the raw number from the
+    // USD-tracked balance corrupts the display for any non-USD
+    // source, the same bug found and fixed across every other send
+    // screen this session. syncBalanceFromEversend pulls the real
+    // balance instead.
+    await Provider.of<UserLoginStateProvider>(context, listen: false)
+        .syncBalanceFromEversend(widget.userAuthKey);
 
     setState(() => _isProcessing = false);
 
@@ -677,7 +696,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                         Text(
                           _exchangeRate != null
                               ? "1 ${sourceInfo.currencyCode} = ${_exchangeRate!.toStringAsFixed(4)} ${_destination.currencyCode}"
-                              : "Rate shown at delivery",
+                              : "Rate unavailable — shown at delivery",
                           style: TextStyle(
                               fontSize: 13, color: AppColors.textMuted, fontFamily: 'monospace'),
                         ),
@@ -724,7 +743,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                         : Text(
                             _destination.hasLiveRate && _convertedAmount != null
                                 ? _formatWhole(_convertedAmount!)
-                                : '—',
+                                : 'Unavailable',
                             style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: AppColors.ink)),
                   ),
                   InkWell(
@@ -778,11 +797,11 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
         if (_payoutMethod == 0) ...[
           // Mobile money: only a phone number is needed — this is the
           // one path that's actually wired end-to-end today.
-          TextField(
+          PhoneNumberField(
+            initialCountryCode: _destination.countryCode,
             controller: _recipientPhoneController,
-            keyboardType: TextInputType.phone,
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
-            decoration: _recipientFieldDecoration("Mobile money number, e.g. +234..."),
+            hintText: "Mobile money number",
+            onChanged: (fullNumber) => setState(() => _recipientFullPhone = fullNumber),
           ),
         ] else if (_payoutMethod == 1) ...[
           // Bank account: a bank picker (loaded from the destination
@@ -1049,7 +1068,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                     : Text(
                         _destination.hasLiveRate && _convertedAmount != null
                             ? _formatWhole(_convertedAmount!)
-                            : "—",
+                            : "Unavailable",
                         style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.ink)),
               ),
             ),
@@ -1106,7 +1125,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                   Text(
                     _exchangeRate != null
                         ? "1 ${source.currencyCode} = ${_exchangeRate!.toStringAsFixed(4)} ${_destination.currencyCode}"
-                        : "No rate available",
+                        : "Rate unavailable — shown at delivery",
                     style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.ink),
                   ),
                 ],
@@ -1159,11 +1178,11 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
           decoration: _recipientFieldDecoration("Recipient's full name"),
         ),
         const SizedBox(height: 10),
-        TextField(
+        PhoneNumberField(
+          initialCountryCode: _destination.countryCode,
           controller: _recipientPhoneController,
-          keyboardType: TextInputType.phone,
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
-          decoration: _recipientFieldDecoration("Mobile money number, e.g. +234..."),
+          hintText: "Mobile money number",
+          onChanged: (fullNumber) => setState(() => _recipientFullPhone = fullNumber),
         ),
         const SizedBox(height: 10),
         _buildSaveRecipientToggle(),

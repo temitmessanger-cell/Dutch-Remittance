@@ -118,11 +118,16 @@ class EversendClient {
       }
       // Normalize the error so route handlers can pass a clean shape
       // back to the Flutter app instead of leaking axios internals.
+      // The final fallback ('Something went wrong...') is deliberately
+      // generic rather than the raw axios message (e.g. "Request
+      // failed with status code 403") — a user seeing an HTTP status
+      // code in a plain-language app is confusing, not helpful, and
+      // this fallback should rarely even trigger since Eversend's own
+      // error responses almost always populate data.message/data.error.
       const message =
         err.response?.data?.message ||
         err.response?.data?.error ||
-        err.message ||
-        'Eversend request failed';
+        (err.response ? 'Something went wrong on our end. Please try again.' : 'Could not reach Eversend right now. Please try again shortly.');
       const normalized = new Error(message);
       normalized.status = status || 502;
       normalized.details = err.response?.data;

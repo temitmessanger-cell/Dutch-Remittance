@@ -492,3 +492,63 @@ alter table public.transactions add constraint transactions_type_check check (
 -- from before this column existed simply don't carry a fee
 -- breakdown, which is honest since none was computed at the time.
 alter table public.transactions add column if not exists fee_charged numeric;
+
+-- ------------------------------------------------------------------
+-- wallet_ledger — the real, authoritative per-user balance record.
+--
+-- Before this table existed, the app had NO per-user balance concept
+-- at all: every user shared one pooled Eversend business wallet, and
+-- GET /api/v1/wallets returned the entire business's balance to
+-- whoever called it. Nothing stopped a signed-in user from requesting
+-- a payout up to the FULL pooled balance, regardless of what they
+-- personally deposited — a real fund-safety gap, not a hypothetical
+-- one.
+--
+-- Append-only by design: every credit (deposit, card withdraw-back,
+-- refund) and every debit (payout, card fund, exchange-out,
+-- withdrawal) is its own row here, never an update to a single
+-- mutable "balance" column. A user's current balance is always
+-- `sum(amount_usd) where user_id = X` — see the
+-- get_user_balance_usd() function below. This avoids the classic
+-- race condition where two concurrent debits both read the same
+-- "balance so far" value and both succeed when only one should have.
+--
+-- amount_usd is always normalized to USD (the platform's base
+-- currency) regardless of what currency the underlying transaction
+-- was in, using the same live rate the transaction itself was quoted
+-- at — so summing this column always gives a real, comparable total
+-- regardless of how many different currencies a user has touched.
+create table if not exists public.wallet_ledger (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  -- Positive for credits (money in), negative for debits (money out)
+  -- — this sign convention is what makes `sum(amount_usd)` the
+  -- correct balance calculation with no special-casing needed.
+  amount_usd numeric not null,
+  -- What this ledger entry corresponds to, for audit/debugging —
+  -- deliberately not a foreign key to transactions.id, since a few
+  -- ledger entries (e.g. a manual correction) may not have a matching
+  -- transaction row.
+  reason text not null,
+  reference_transaction_id uuid references public.transactions (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists wallet_ledger_user_id_idx on public.wallet_ledger (user_id);
+create index if not exists wallet_ledger_user_id_created_at_idx on public.wallet_ledger (user_id, created_at);
+
+alter table public.wallet_ledger enable row level security;
+drop policy if exists "wallet_ledger_select_own" on public.wallet_ledger;
+create policy "wallet_ledger_select_own" on public.wallet_ledger
+  for select using (
+    user_id in (select id from public.profiles where auth_user_id = auth.uid())
+  );
+
+-- A user's current real balance in USD — the single source of truth
+-- every debit-attempting route (payouts, card fund, crypto exchange,
+-- wallet-to-wallet transfer) must check against before letting money
+-- move. Returns 0, not null, for a user with no ledger entries yet
+-- (a brand-new account), so callers never have to null-check this.
+create or replace function public.get_user_balance_usd(target_user_id uuid)
+returns numeric as $$
+  select coalesce(sum(amount_usd), 0) from public.wallet_ledger where user_id = target_user_id;
+$$ language sql stable;

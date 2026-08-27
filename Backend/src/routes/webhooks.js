@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { supabaseAdmin } = require('../supabaseClient');
+const { credit, convertToUsd } = require('../walletLedger');
 
 const router = express.Router();
 
@@ -56,6 +57,41 @@ router.post('/eversend', async (req, res) => {
       .eq('eversend_reference', reference)
       .select('id, user_id, type, amount, currency, status')
       .maybeSingle();
+
+    // Real fund-safety credit: only once a deposit reaches a
+    // genuinely confirmed status (never "pending") does the user's
+    // tracked wallet_ledger balance actually increase. Crediting on
+    // the initial API response (before Eversend/Klasha confirm
+    // settlement) would let a user withdraw money that hadn't
+    // actually arrived yet if the deposit later failed — this is the
+    // one place that credit safely happens. Amount is converted to
+    // USD first (deposits often come in as XAF/GHS/etc., not USD) so
+    // wallet_ledger stays comparable across every currency a user
+    // touches.
+    //
+    // No deposit-limit check happens here on purpose: by the time a
+    // webhook fires, the real money has already arrived at
+    // Eversend/Klasha. The $1/$5000/$8000 limits (validateDepositAmountUsd)
+    // are enforced before a deposit is initiated (see collections.js's
+    // POST /momo) — refusing to credit money that's already real and
+    // already moved would just mean the platform holds a user's funds
+    // without ever crediting them, which is worse than the limit
+    // itself.
+    if (updatedTxn && updatedTxn.type === 'deposit') {
+      const confirmedStatuses = ['completed', 'successful', 'success'];
+      if (confirmedStatuses.includes((updatedTxn.status || '').toLowerCase())) {
+        try {
+          const amountUsd = await convertToUsd(updatedTxn.amount, updatedTxn.currency);
+          if (amountUsd != null && amountUsd > 0) {
+            await credit(updatedTxn.user_id, amountUsd, `deposit (${updatedTxn.currency})`, updatedTxn.id);
+          }
+        } catch (_) {
+          // Non-fatal — the transaction status itself is already
+          // updated; a missed ledger credit here needs manual
+          // reconciliation rather than failing the whole webhook.
+        }
+      }
+    }
 
     // Surfaces in the Payments tab's Notifications upper nav
     // (all_transaction_activities_screen.dart) — this was the one
@@ -132,6 +168,21 @@ router.post('/klasha', async (req, res) => {
       .eq('eversend_reference', reference)
       .select('id, user_id, type, amount, currency, status')
       .maybeSingle();
+
+    // Same real fund-safety credit as the Eversend webhook above —
+    // Klasha-routed deposits (e.g. via a Klasha virtual account) only
+    // increase wallet_ledger once genuinely confirmed.
+    if (updatedTxn && updatedTxn.type === 'deposit') {
+      const confirmedStatuses = ['completed', 'successful', 'success'];
+      if (confirmedStatuses.includes((updatedTxn.status || '').toLowerCase())) {
+        try {
+          const amountUsd = await convertToUsd(updatedTxn.amount, updatedTxn.currency);
+          if (amountUsd != null && amountUsd > 0) {
+            await credit(updatedTxn.user_id, amountUsd, `deposit (${updatedTxn.currency})`, updatedTxn.id);
+          }
+        } catch (_) {}
+      }
+    }
 
     if (updatedTxn) {
       await _notifyTransactionUpdate(updatedTxn);

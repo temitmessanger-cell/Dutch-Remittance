@@ -11,16 +11,29 @@ import 'package:dutch_remit/components/international_transfer/currency_picker_sh
 import 'package:dutch_remit/components/shared/transfer_info_widgets.dart';
 import 'package:dutch_remit/components/shared/transaction_receipt_dialog.dart';
 import 'package:dutch_remit/utilities/make_api_request.dart';
+import 'package:dutch_remit/utilities/slide_right_route.dart';
+import 'package:dutch_remit/screens/virtual_accounts_screen.dart';
+import 'package:dutch_remit/components/shared/phone_number_field.dart';
 
 /// The real "Global Transfer" flow: send straight to a bank account
 /// anywhere Eversend has a confirmed bank-payout corridor (Europe, US,
 /// plus the African countries with a bank option) — pick a
 /// destination country, get a live quote (POST /api/v1/rates/quotation),
-/// enter the recipient's real bank details (bank picked from
-/// GET /api/v1/payouts/banks/:country, account number, account name),
-/// then execute against POST /api/v1/payouts/send. Replaces the
-/// previous currency-only preview, which never actually called the
-/// backend and always faked a successful send.
+/// enter the recipient's real bank details, then execute against
+/// POST /api/v1/payouts/send. Replaces the previous currency-only
+/// preview, which never actually called the backend and always faked
+/// a successful send.
+///
+/// Bank details collection branches by destination: Eversend's
+/// GET /payouts/banks/:country only returns real results for the
+/// African bank-corridor countries it names explicitly on its own
+/// platform page (NG, KE, GH, UG — see _bankListCountries below).
+/// Every other destination (all EU/SEPA countries, US) skips the
+/// bank-picker entirely and asks for account number/IBAN directly —
+/// a prior version of this screen always tried to load a bank list
+/// regardless of destination, which silently returned nothing for
+/// every non-African country (Austria, the default destination,
+/// included) and made the whole screen look broken.
 class GlobalBankTransferScreen extends StatefulWidget {
   final Map<String, dynamic> user;
   final String? userAuthKey;
@@ -34,11 +47,26 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
   final TextEditingController _amountController = TextEditingController(text: '500');
   final TextEditingController _recipientNameController = TextEditingController();
   final TextEditingController _recipientPhoneController = TextEditingController();
+  String _recipientFullPhone = '';
   final TextEditingController _accountNumberController = TextEditingController();
   bool _saveRecipient = true;
 
   String _sourceCurrency = 'USD';
   PayoutCountryInfo _destination = kBankPayoutCountries.first;
+
+  // Eversend's GET /payouts/banks/:country only returns real results
+  // for the African bank-corridor countries it names explicitly on
+  // its own platform page (NG, KE, GH, UG) — there's no evidence it
+  // covers EU/SEPA countries or the US, where a transfer is routed by
+  // IBAN/account number directly rather than picking a bank from a
+  // list. Trying to load a bank list for Austria (the previous
+  // default destination) or any other EU country returned nothing,
+  // which is why "Choose bank" silently did nothing and the whole
+  // screen looked broken for every destination except the four
+  // countries below. Non-list countries now skip the bank picker
+  // entirely and just ask for the account number/IBAN.
+  static const Set<String> _bankListCountries = {'NG', 'KE', 'GH', 'UG'};
+  bool get _needsBankPicker => _bankListCountries.contains(_destination.countryCode);
 
   List<Map<String, dynamic>> _banks = [];
   Map<String, dynamic>? _selectedBank;
@@ -55,7 +83,7 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
   @override
   void initState() {
     super.initState();
-    _loadBanks();
+    if (_needsBankPicker) _loadBanks();
     _fetchQuote();
     _amountController.addListener(_onAmountChanged);
   }
@@ -153,6 +181,19 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
     return v == null ? null : double.tryParse(v.toString());
   }
 
+  // The live rate this quote locked in — was already coming back from
+  // POST /api/v1/rates/quotation (see paymentRouter.js's confirmed
+  // response shape: quotation.exchangeRate, right alongside
+  // destinationAmount and totalFees above) but this screen never
+  // extracted or displayed it, so the rate line was silently missing
+  // even though a real quote (Eversend-first, falling back to Klasha
+  // via a bank account when needed — see paymentRouter.js) was always
+  // being fetched underneath.
+  double? get _exchangeRate {
+    final v = _quotation?['exchangeRate'];
+    return v == null ? null : double.tryParse(v.toString());
+  }
+
   double? get _totalFee {
     final v = _quote?['feeBreakdown']?['totalFee'];
     return v == null ? null : double.tryParse(v.toString());
@@ -191,8 +232,12 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
       ),
     );
     if (picked != null && picked.countryCode != _destination.countryCode) {
-      setState(() => _destination = picked);
-      await _loadBanks();
+      setState(() {
+        _destination = picked;
+        _banks = [];
+        _selectedBank = null;
+      });
+      if (_needsBankPicker) await _loadBanks();
       _fetchQuote();
     }
   }
@@ -244,7 +289,7 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
       setState(() => _errorMessage = "Enter the recipient's full name.");
       return;
     }
-    if (_selectedBank == null) {
+    if (_needsBankPicker && _selectedBank == null) {
       setState(() => _errorMessage = "Choose the recipient's bank.");
       return;
     }
@@ -252,7 +297,7 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
       setState(() => _errorMessage = "Enter the recipient's account number.");
       return;
     }
-    if (_recipientPhoneController.text.trim().isEmpty) {
+    if (_recipientFullPhone.trim().isEmpty) {
       setState(() => _errorMessage = "Enter the recipient's phone number.");
       return;
     }
@@ -279,7 +324,7 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
         // their docs): token, phoneNumber, firstName, lastName, country,
         // bankName, bankCode, bankAccountName, bankAccountNumber.
         "token": _quotationToken,
-        "phoneNumber": _recipientPhoneController.text.trim(),
+        "phoneNumber": _recipientFullPhone.trim(),
         "firstName": firstName,
         "lastName": lastName,
         "country": _destination.countryCode,
@@ -303,8 +348,58 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
     if (!mounted) return;
 
     if (result.containsKey('apiRequestError') || result['error'] != null) {
+      setState(() => _isSending = false);
+
+      // If this destination currency falls back to Klasha (GHS, and
+      // any other Klasha-fallback currency — see corridors.js's
+      // resolveProvider) and no matching bank account exists yet, the
+      // backend returns needsVirtualAccount instead of a generic
+      // error. Same handling as africa_corridor_screen.dart's send
+      // flow, just previously missing here — a Global Transfer to a
+      // Klasha-fallback currency used to just show a bare error with
+      // no path forward.
+      if (result['needsVirtualAccount'] == true) {
+        final currency = result['virtualAccountCurrency']?.toString();
+        final goSetUp = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.lg)),
+            title: Text("Set up a bank account first",
+                style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink)),
+            content: Text(
+              "This corridor needs a ${currency ?? ''} bank account before you can send — a quick one-time setup.",
+              style: TextStyle(color: AppColors.inkMuted, height: 1.4),
+            ),
+            actionsAlignment: MainAxisAlignment.center,
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: Text("Not now", style: TextStyle(color: AppColors.textMuted)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.sm)),
+                ),
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: Text("Set it up"),
+              ),
+            ],
+          ),
+        );
+        if (goSetUp == true && mounted) {
+          Navigator.push(
+            context,
+            SlideRightRoute(
+                page: VirtualAccountsScreen(user: widget.user, userAuthKey: widget.userAuthKey)),
+          );
+        }
+        return;
+      }
+
       setState(() {
-        _isSending = false;
         _errorMessage = result['error']?.toString() ?? result['apiRequestError']?.toString() ?? "Couldn't complete the transfer. Please try again.";
       });
       return;
@@ -323,7 +418,7 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
             "firstName": firstName,
             "lastName": lastName,
             "country": _destination.countryCode,
-            "phoneNumber": _recipientPhoneController.text.trim(),
+            "phoneNumber": _recipientFullPhone.trim(),
             "isBank": true,
             "isMomo": false,
             "bankAccountName": _recipientNameController.text.trim(),
@@ -350,8 +445,15 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
     });
 
     if (!mounted) return;
-    Provider.of<UserLoginStateProvider>(context, listen: false)
-        .updateBankBalance('debit', amount.toStringAsFixed(2));
+    // Real fix: `amount` is in _sourceCurrency, which the user can
+    // change away from USD via the currency picker — debiting the
+    // raw local-currency number from the USD-tracked balance would
+    // corrupt the displayed balance for any non-USD source currency,
+    // the same bug already found and fixed in the mobile money
+    // deposit/withdrawal screens. syncBalanceFromEversend pulls the
+    // real balance instead of guessing at a local decrement.
+    await Provider.of<UserLoginStateProvider>(context, listen: false)
+        .syncBalanceFromEversend(widget.userAuthKey);
 
     setState(() {
       _isSending = false;
@@ -366,10 +468,15 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
       fields: [
         ReceiptField("To", "${_recipientNameController.text.trim()} · ${_destination.countryName}"),
         ReceiptField("You sent", "${amount.toStringAsFixed(2)} $_sourceCurrency"),
+        if (_exchangeRate != null)
+          ReceiptField("Rate", "1 $_sourceCurrency = ${_exchangeRate!.toStringAsFixed(4)} ${_destination.currencyCode}"),
         if (_totalFee != null) ReceiptField("Fee", "${_totalFee!.toStringAsFixed(2)} $_sourceCurrency"),
         if (_destinationAmount != null)
           ReceiptField("They receive", "${_destinationAmount!.toStringAsFixed(2)} ${_destination.currencyCode}"),
-        ReceiptField("Bank", _selectedBank?['name']?.toString() ?? '—'),
+        if (_needsBankPicker)
+          ReceiptField("Bank", _selectedBank?['name']?.toString() ?? '—')
+        else
+          ReceiptField("Account", _accountNumberController.text.trim()),
         ReceiptField("Date", now.toLocal().toString().split('.').first),
       ],
       reference: transactionRef,
@@ -379,6 +486,7 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
     setState(() {
       _recipientNameController.clear();
       _recipientPhoneController.clear();
+      _recipientFullPhone = '';
       _accountNumberController.clear();
       _selectedBank = null;
     });
@@ -498,6 +606,16 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
         const SizedBox(height: 4),
         Text("${_destination.flagEmoji} ${_destination.countryName} · Bank transfer",
             style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+        if (_exchangeRate != null) ...[
+          const SizedBox(height: 4),
+          Text(
+              "1 $_sourceCurrency = ${_exchangeRate!.toStringAsFixed(4)} ${_destination.currencyCode}",
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink)),
+        ] else if (!_isQuoting && _quote != null) ...[
+          const SizedBox(height: 4),
+          Text("Rate unavailable — shown at delivery",
+              style: TextStyle(fontSize: 12, color: AppColors.danger)),
+        ],
         const SizedBox(height: 20),
         Text("RECIPIENT'S BANK DETAILS",
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: AppColors.textMuted)),
@@ -508,35 +626,63 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
           decoration: _fieldDecoration("Recipient's full name"),
         ),
         const SizedBox(height: 10),
-        TextField(
+        PhoneNumberField(
+          initialCountryCode: _destination.countryCode,
           controller: _recipientPhoneController,
-          keyboardType: TextInputType.phone,
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
-          decoration: _fieldDecoration("Recipient's phone, e.g. +447700900000"),
+          hintText: "Recipient's phone",
+          onChanged: (fullNumber) => setState(() => _recipientFullPhone = fullNumber),
         ),
         const SizedBox(height: 10),
-        InkWell(
-          onTap: _isLoadingBanks ? null : _pickBank,
-          child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppRadii.md), border: Border.all(color: AppColors.border)),
+        if (_needsBankPicker) ...[
+          InkWell(
+            onTap: _isLoadingBanks ? null : _pickBank,
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppRadii.md), border: Border.all(color: AppColors.border)),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _isLoadingBanks ? "Loading banks…" : (_selectedBank?['name']?.toString() ?? "Choose bank"),
+                      style: TextStyle(fontWeight: FontWeight.w600, color: _selectedBank == null ? AppColors.textMuted : AppColors.ink),
+                    ),
+                  ),
+                  if (_isLoadingBanks)
+                    SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
+                  else
+                    Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textMuted),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ] else ...[
+          // No enumerable bank list for this destination (Eversend's
+          // delivery-banks endpoint only covers NG/KE/GH/UG) — send
+          // straight by account number/IBAN instead of a bank picker
+          // that would otherwise silently show nothing to choose.
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(AppRadii.md),
+            ),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Icon(Icons.info_outline_rounded, size: 15, color: AppColors.primary),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    _isLoadingBanks ? "Loading banks…" : (_selectedBank?['name']?.toString() ?? "Choose bank"),
-                    style: TextStyle(fontWeight: FontWeight.w600, color: _selectedBank == null ? AppColors.textMuted : AppColors.ink),
+                    "${_destination.countryName} transfers go straight by account number/IBAN — no bank list needed.",
+                    style: TextStyle(fontSize: 12, color: AppColors.inkMuted, height: 1.4),
                   ),
                 ),
-                if (_isLoadingBanks)
-                  SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
-                else
-                  Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textMuted),
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 10),
+          const SizedBox(height: 10),
+        ],
         TextField(
           controller: _accountNumberController,
           keyboardType: TextInputType.text,

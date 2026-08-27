@@ -5,6 +5,7 @@ import 'package:dutch_remit/utilities/app_theme.dart';
 import 'package:dutch_remit/utilities/make_api_request.dart';
 import 'package:dutch_remit/utilities/slide_right_route.dart';
 import 'package:dutch_remit/screens/mobile_money_deposit_screen.dart';
+import 'package:dutch_remit/screens/crypto_screen.dart';
 
 class TopUpMethod {
   final String id;
@@ -152,11 +153,23 @@ class _TopUpScreenState extends State<TopUpScreen> {
   }
 
   void _selectMethod(TopUpMethod method) {
+    if (method.id == 'crypto') {
+      // Crypto no longer has its own inline amount/rate step in this
+      // screen — it hands off immediately to CryptoScreen, which does
+      // the real existence check and full coin picker (see the
+      // 'crypto' case in _startDeposit for the fuller explanation).
+      Navigator.push(
+        context,
+        SlideRightRoute(
+          page: CryptoScreen(user: widget.user, userAuthKey: widget.userAuthKey),
+        ),
+      );
+      return;
+    }
     setState(() {
       _selectedMethod = method;
       _errorMessage = null;
     });
-    if (method.id == 'crypto') _fetchCryptoRate();
   }
 
   void _pickMethod() {
@@ -243,7 +256,19 @@ class _TopUpScreenState extends State<TopUpScreen> {
         return;
 
       case 'crypto':
-        await _startCryptoDeposit();
+        // Replaces the old inline flow, which always attempted to
+        // create a fresh address on every confirm tap with no check
+        // for an existing one, and only ever offered a single
+        // hardcoded coin (USDT) with no picker, icons, or fees shown.
+        // CryptoScreen does the real existence check first (GET
+        // /api/v1/crypto/addresses) and shows the full live coin
+        // picker (GET /api/v1/crypto/supported-coins) when needed.
+        Navigator.push(
+          context,
+          SlideRightRoute(
+            page: CryptoScreen(user: widget.user, userAuthKey: widget.userAuthKey),
+          ),
+        );
         return;
     }
   }
@@ -598,6 +623,14 @@ class _TopUpScreenState extends State<TopUpScreen> {
                     borderRadius: BorderRadius.circular(AppRadii.md)),
               ),
             ),
+            // `_selectedMethod.id == 'crypto'` can no longer actually
+            // happen — _selectMethod() now routes Crypto straight to
+            // CryptoScreen before it's ever set as the selected
+            // method (see above). Left in place rather than deleted:
+            // removing a large multi-widget block risked the same
+            // swallowed-brace failure this session hit twice already
+            // on similarly-sized edits, and this branch is provably
+            // unreachable dead code, not a live bug.
             if (_selectedMethod.id == 'crypto') ...[
               const SizedBox(height: 18),
               Row(
@@ -656,7 +689,7 @@ class _TopUpScreenState extends State<TopUpScreen> {
                       Text("Live rate unavailable right now — try again shortly.",
                           style: TextStyle(fontSize: 12, color: AppColors.danger)),
                     const SizedBox(height: 6),
-                    Text("Network fee applies + Dutch Remit's 1% on top.",
+                    Text("Network fee applies + Dutch Remit's margin on top.",
                         style: TextStyle(fontSize: 11.5, color: AppColors.inkMuted)),
                   ],
                 ),

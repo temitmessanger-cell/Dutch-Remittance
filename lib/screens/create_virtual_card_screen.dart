@@ -9,6 +9,7 @@ import 'package:dutch_remit/utilities/app_theme.dart';
 import 'package:dutch_remit/utilities/african_country_data.dart';
 import 'package:dutch_remit/utilities/custom_date_grouping.dart';
 import 'package:dutch_remit/utilities/make_api_request.dart';
+import 'package:dutch_remit/utilities/url_external_launcher.dart';
 import 'package:dutch_remit/components/shared/transaction_receipt_dialog.dart';
 
 /// Dutch Remit's own fee for issuing a card — separate from, and on
@@ -61,6 +62,13 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
   bool _isSubmitting = false;
   String? _errorMessage;
   String? _cardUserId;
+
+  // Set once _issueCard() confirms the real amount charged — shown on
+  // the success screen so the non-pending tiers (instant, skip-KYC)
+  // genuinely confirm payment happened, not just "your card is ready"
+  // with no reference to what was actually paid.
+  double? _confirmedTotalCharged;
+  String? _confirmedCurrency;
 
   // Step 1 — identity (required once by Eversend before any card can
   // be issued to this person).
@@ -224,7 +232,11 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
 
     setState(() {
       _isSubmitting = false;
-      _cardUserId = (result['id'] ?? result['data']?['id'] ?? result['userId'])?.toString();
+      // The backend now normalizes this to result['userId']/result['id']
+      // directly (see Backend/src/routes/cards.js) — the deeper
+      // result['data']?['id'] fallback stays for safety, but the
+      // normal path is the first two.
+      _cardUserId = (result['userId'] ?? result['id'] ?? result['data']?['id'])?.toString();
       _step = 1;
     });
   }
@@ -241,8 +253,15 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
     // The instant tier issues without a pre-created cardholder — the
     // backend resolves or auto-provisions one. Every other tier requires
     // the identity step to have run and produced a _cardUserId first.
+    // The identity step's own error handling (above) now catches a
+    // failed/incomplete cardholder creation directly and never lets
+    // _step advance past it — this check is a safety net for the
+    // unusual case of reaching this screen with no cardholder at all
+    // (e.g. navigating back and forward in a way that lost state),
+    // not the everyday failure path it used to silently absorb.
     if (!isInstant && _cardUserId == null) {
-      setState(() => _errorMessage = "Your identity profile wasn't saved correctly — go back and try again.");
+      setState(() => _errorMessage =
+          "We couldn't find your identity profile for this card. Go back to the previous step to set it up again.");
       return;
     }
 
@@ -300,11 +319,17 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
     });
 
     if (!mounted) return;
-    Provider.of<UserLoginStateProvider>(context, listen: false)
-        .updateBankBalance('debit', totalCharged.toStringAsFixed(2));
+    // Real fix: totalCharged is in _currency, which can be XAF (see
+    // the "FUND FROM" picker — USD/XAF), not always USD. Same
+    // currency-mismatch bug found and fixed across every other
+    // real-money screen this session.
+    await Provider.of<UserLoginStateProvider>(context, listen: false)
+        .syncBalanceFromEversend(widget.userAuthKey);
 
     setState(() {
       _isSubmitting = false;
+      _confirmedTotalCharged = totalCharged;
+      _confirmedCurrency = _currency;
       _step = 2;
     });
   }
@@ -942,16 +967,99 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
   }
 
   Widget _stepSuccess() {
+    // For the withKyc tier, a real document was just submitted for
+    // Eversend's own verification — the card exists but isn't
+    // instantly confirmed usable the way instant/skip-KYC cards are.
+    // Previously this screen said "Your card is ready... use it right
+    // away" for every tier including this one, which wasn't honest —
+    // fixed to say what's actually true: review is ongoing, ~48
+    // hours, contact WhatsApp support (already surfaced in Profile)
+    // if it takes longer. Instant and no-KYC tiers keep the original
+    // "ready now" message since the card is genuinely usable
+    // immediately for those.
+    final bool isPendingReview = _tier == CardTier.withKyc;
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
       children: [
-        Icon(Icons.check_circle_rounded, color: AppColors.success, size: 56),
+        Icon(
+          isPendingReview ? Icons.hourglass_top_rounded : Icons.check_circle_rounded,
+          color: isPendingReview ? AppColors.warning : AppColors.success,
+          size: 56,
+        ),
         const SizedBox(height: 16),
-        Text("Your card is ready", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink)),
+        Text(
+          isPendingReview ? "Your card is under review" : "Your card is ready",
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink),
+        ),
         const SizedBox(height: 8),
-        Text("You can use it right away for online payments and subscriptions.",
-            style: TextStyle(fontSize: 13.5, color: AppColors.textMuted)),
-        const SizedBox(height: 24),
+        Text(
+          isPendingReview
+              ? "We've received your ID and are verifying it — this usually takes up to 48 hours. Your card will be ready to use as soon as review completes."
+              : "You can use it right away for online payments and subscriptions.",
+          style: TextStyle(fontSize: 13.5, color: AppColors.textMuted, height: 1.5),
+        ),
+        if (!isPendingReview && _confirmedTotalCharged != null) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.successBg,
+              borderRadius: BorderRadius.circular(AppRadii.md),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.check_circle_rounded, size: 18, color: AppColors.success),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    "Payment confirmed — \$${_confirmedTotalCharged!.toStringAsFixed(2)} $_confirmedCurrency charged to your wallet.",
+                    style: TextStyle(fontSize: 12.5, color: AppColors.success, fontWeight: FontWeight.w700, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (isPendingReview) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(AppRadii.md),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded, size: 16, color: AppColors.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    "Taking longer than 48 hours, or have a question about your review? Reach us on WhatsApp — Profile > Help & Feedback.",
+                    style: TextStyle(fontSize: 12.5, color: AppColors.inkMuted, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => launchExternalURL(kSupportWhatsAppUrl),
+              icon: Icon(Icons.chat_rounded, size: 18, color: AppColors.primary),
+              label: Text("Contact WhatsApp support", style: TextStyle(fontWeight: FontWeight.w700)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                side: BorderSide(color: AppColors.primary),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.md)),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(

@@ -21,7 +21,8 @@ import 'package:provider/provider.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
 
 class AppSettingsComponent extends StatelessWidget {
-  const AppSettingsComponent({Key? key}) : super(key: key);
+  final Map<String, dynamic>? user;
+  const AppSettingsComponent({Key? key, this.user}) : super(key: key);
 
   Future<bool> _deleteLoggedInUserData() async {
     List<bool> deletionStatus = await Future.wait(
@@ -102,7 +103,7 @@ class AppSettingsComponent extends StatelessWidget {
         ),
         'trailing': Icon(Icons.person_add_alt_1_rounded, color: AppColors.primary),
         'onTap': () {
-          showInviteToDutchRemitSheet(context);
+          showInviteToDutchRemitSheet(context, user: user);
         },
         'settingsCategory': 'Invite',
       },

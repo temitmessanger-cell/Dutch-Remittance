@@ -135,8 +135,15 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
     if (!mounted) return;
     setState(() {
       _isQuoting = false;
-      _convertedAmount = result?['amount'] ?? amount * 1710;
-      _exchangeRate = result?['rate'] ?? 1710;
+      // No fabricated fallback — a previous version defaulted to
+      // "amount * 1710" / "rate: 1710" whenever the real conversion
+      // service returned nothing, presented identically to a real
+      // rate with no indication it was a guess. If the service
+      // genuinely has no rate right now, this is null and the UI
+      // shows an honest "Rate unavailable" instead (see build()
+      // below), never an invented number.
+      _convertedAmount = result?['amount'] as double?;
+      _exchangeRate = result?['rate'] as double?;
       _fee = fee;
     });
   }
@@ -203,8 +210,11 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
     await SuccessfulTransactionsStorage().updateSuccessfulTransactions(receipt);
 
     if (!mounted) return;
-    Provider.of<UserLoginStateProvider>(context, listen: false)
-        .updateBankBalance('debit', (amount + fee).toStringAsFixed(2));
+    // Real fix: `amount + fee` is in _sourceCurrency (defaults to
+    // GBP, user-changeable) — the same currency-mismatch bug found
+    // and fixed across every other send screen this session.
+    await Provider.of<UserLoginStateProvider>(context, listen: false)
+        .syncBalanceFromEversend(widget.userAuthKey);
 
     setState(() {
       _isProcessing = false;
@@ -349,7 +359,7 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
                     child: Text(
                       _exchangeRate != null
                           ? "1 $_sourceCurrency = ${_exchangeRate!.toStringAsFixed(0)} NGN"
-                          : "Fetching live rate…",
+                          : (_isQuoting ? "Fetching live rate…" : "Rate unavailable — shown at delivery"),
                       style: TextStyle(fontSize: 12.5, color: AppColors.textMuted, fontFamily: 'monospace'),
                     ),
                   ),
@@ -374,7 +384,7 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
                                 : Text(
                                     _convertedAmount != null
                                         ? _formatWhole(_convertedAmount!)
-                                        : '—',
+                                        : 'Unavailable',
                                     style: TextStyle(
                                         fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.ink,
                                         fontFamily: 'monospace')),
