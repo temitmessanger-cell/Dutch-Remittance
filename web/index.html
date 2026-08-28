@@ -107,87 +107,196 @@
          no extractable text at all. See index.html's closing script
          for the corresponding first-frame handling.
 
-         Styled to actually look like a branded loading screen (app
-         icon + spinner + "Loading your account…"), not a generic
-         fallback page — real users see this for a few seconds on
-         every first load while CanvasKit/main.dart.js download, so it
-         needs to read as "the app is starting" rather than "the app
-         is broken". The full marketing copy below the fold still
-         gives Google real crawlable text either way. */
+         Redesigned: the SEO paragraphs below used to sit in the same
+         visible flow as the loading spinner, all at once, at full
+         opacity — a wall of marketing copy where a real user expects
+         a clean loading screen. Fixed by splitting this into two
+         layers: a polished, animated "hero" (icon, wordmark, a real
+         multi-ring loading animation, a rotating status line) that's
+         all a human ever consciously looks at, and the actual SEO
+         copy still fully present in the DOM right below it —
+         crawlable, real content, just visually de-emphasized (small,
+         muted, scrolled past) rather than competing with the loading
+         moment for attention. */
       z-index: 0;
       min-height: 100vh;
       display: flex;
+      flex-direction: column;
       align-items: center;
-      justify-content: center;
-      padding: 32px 20px;
-      background: linear-gradient(180deg, #163172 0%, #0e2154 100%);
+      padding: 0 20px;
+      background: radial-gradient(120% 120% at 50% 0%, #1c3d8f 0%, #163172 45%, #0e2154 100%);
       color: #ffffff;
       pointer-events: none;
+      overflow: hidden;
     }
 
     #seo-shell a { pointer-events: auto; color: #a9c2ff; }
 
-    #seo-shell-inner {
-      max-width: 640px;
+    /* ---- The hero: what a real user actually sees and watches ---- */
+    #seo-shell-hero {
+      min-height: 100vh;
       width: 100%;
+      max-width: 420px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       text-align: center;
     }
 
-    #seo-shell-icon {
-      width: 72px;
-      height: 72px;
-      border-radius: 20px;
-      margin-bottom: 20px;
+    #seo-shell-icon-wrap {
+      position: relative;
+      width: 96px;
+      height: 96px;
+      margin-bottom: 28px;
     }
 
-    #seo-shell-spinner {
-      width: 28px;
-      height: 28px;
-      margin: 28px auto 14px;
+    #seo-shell-icon {
+      width: 96px;
+      height: 96px;
+      border-radius: 24px;
+      position: relative;
+      z-index: 2;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+      animation: seo-shell-icon-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    /* Two concentric rings orbiting at different speeds, plus a soft
+       pulsing glow behind the icon — reads as "a real system is
+       working", not a single generic spinner. */
+    #seo-shell-ring-outer,
+    #seo-shell-ring-inner {
+      position: absolute;
+      inset: -14px;
       border-radius: 50%;
-      border: 3px solid rgba(255, 255, 255, 0.25);
-      border-top-color: #ffffff;
-      animation: seo-shell-spin 0.8s linear infinite;
+      border: 2px solid transparent;
+    }
+    #seo-shell-ring-outer {
+      border-top-color: #5b8def;
+      border-right-color: rgba(91, 141, 239, 0.25);
+      animation: seo-shell-spin 1.4s linear infinite;
+    }
+    #seo-shell-ring-inner {
+      inset: -26px;
+      border-bottom-color: #a9c2ff;
+      border-left-color: rgba(169, 194, 255, 0.15);
+      animation: seo-shell-spin 2.2s linear infinite reverse;
+    }
+    #seo-shell-glow {
+      position: absolute;
+      inset: -30px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(91, 141, 239, 0.35) 0%, transparent 70%);
+      animation: seo-shell-pulse 2.4s ease-in-out infinite;
+      z-index: 1;
     }
 
     @keyframes seo-shell-spin {
       to { transform: rotate(360deg); }
     }
+    @keyframes seo-shell-pulse {
+      0%, 100% { opacity: 0.5; transform: scale(0.92); }
+      50% { opacity: 1; transform: scale(1.08); }
+    }
+    @keyframes seo-shell-icon-in {
+      from { opacity: 0; transform: translateY(10px) scale(0.9); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes seo-shell-fade-up {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    #seo-shell-wordmark {
+      font-size: 1.5rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin: 0 0 10px;
+      animation: seo-shell-fade-up 0.6s 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
 
     #seo-shell-status {
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       font-weight: 600;
-      color: rgba(255, 255, 255, 0.85);
-      margin: 0 0 36px;
+      color: rgba(255, 255, 255, 0.7);
+      margin: 0;
+      min-height: 1.3em;
+      animation: seo-shell-fade-up 0.6s 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
 
-    #seo-shell h1 {
+    /* Status line rotates through a short sequence via a tiny inline
+       script below — purely cosmetic, never blocks or delays
+       anything; if JS for this specific bit fails for any reason the
+       first message just stays put. */
+    #seo-shell-status span {
+      display: inline-block;
+      animation: seo-shell-status-fade 0.4s ease both;
+    }
+    @keyframes seo-shell-status-fade {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    #seo-shell-progress-track {
+      width: 160px;
+      height: 3px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.12);
+      margin-top: 28px;
+      overflow: hidden;
+      animation: seo-shell-fade-up 0.6s 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    #seo-shell-progress-bar {
+      width: 40%;
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, #5b8def, #a9c2ff);
+      animation: seo-shell-progress 1.6s ease-in-out infinite;
+    }
+    @keyframes seo-shell-progress {
+      0% { transform: translateX(-120%); }
+      100% { transform: translateX(280%); }
+    }
+
+    /* ---- The SEO body: fully real, fully crawlable, just not what
+       a human's eye is drawn to during the loading moment. ---- */
+    #seo-shell-copy {
+      width: 100%;
+      max-width: 640px;
+      text-align: center;
+      padding: 40px 0 56px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      margin-top: 12px;
+    }
+
+    #seo-shell-copy h1 {
       margin: 0 0 14px;
-      font-size: clamp(1.6rem, 4vw, 2.2rem);
-      line-height: 1.15;
+      font-size: clamp(1.3rem, 3.5vw, 1.8rem);
+      line-height: 1.2;
       letter-spacing: -0.02em;
       font-weight: 800;
+      color: rgba(255, 255, 255, 0.92);
     }
 
-    #seo-shell p {
+    #seo-shell-copy p {
       margin: 0 0 12px;
-      font-size: 1rem;
+      font-size: 0.92rem;
       line-height: 1.7;
-      color: rgba(255, 255, 255, 0.72);
+      color: rgba(255, 255, 255, 0.55);
     }
 
-    #seo-shell ul {
+    #seo-shell-copy ul {
       list-style: none;
       padding: 0;
-      margin: 20px 0 0;
-      font-size: 0.95rem;
+      margin: 18px 0 0;
+      font-size: 0.88rem;
       line-height: 1.9;
-      color: rgba(255, 255, 255, 0.72);
+      color: rgba(255, 255, 255, 0.5);
     }
 
     #seo-shell-links {
-      margin-top: 8px;
-      font-size: 0.85rem;
+      margin-top: 10px;
+      font-size: 0.82rem;
     }
     #seo-shell-links a { margin: 0 8px; }
 
@@ -204,10 +313,18 @@
   </style>
 
   <div id="seo-shell" aria-label="Dutch Remit overview">
-    <div id="seo-shell-inner">
-      <img id="seo-shell-icon" src="icons/Icon-192.png" alt="Dutch Remit" />
-      <div id="seo-shell-spinner" role="status" aria-label="Loading"></div>
-      <p id="seo-shell-status">Loading your account…</p>
+    <div id="seo-shell-hero">
+      <div id="seo-shell-icon-wrap">
+        <div id="seo-shell-glow"></div>
+        <div id="seo-shell-ring-outer"></div>
+        <div id="seo-shell-ring-inner"></div>
+        <img id="seo-shell-icon" src="icons/Icon-192.png" alt="Dutch Remit" />
+      </div>
+      <p id="seo-shell-wordmark">Dutch Remit</p>
+      <p id="seo-shell-status" role="status" aria-live="polite"><span>Setting things up…</span></p>
+      <div id="seo-shell-progress-track"><div id="seo-shell-progress-bar"></div></div>
+    </div>
+    <div id="seo-shell-copy">
       <h1>Dutch Remit</h1>
       <p>Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform, and one of Africa's leading platforms — connecting Cameroon and the wider African diaspora with money transfer and card services across Europe, the UAE and Asia, with coverage expanding.</p>
       <p>Users can send money, manage transfers, track payments, and access financial services through a secure digital experience designed for international transfers and account-based payments — with real, live exchange rates, mobile money and bank payouts across 120+ countries and 20+ currencies, backed by global fintech infrastructure.</p>
@@ -253,6 +370,29 @@
     setTimeout(function () {
       window.removeSplashFromWeb?.();
     }, 8000);
+
+    // Purely cosmetic status-line rotation on the loading hero — gives
+    // the sense of real progress during the CanvasKit/main.dart.js
+    // download instead of one static "Loading…" the whole time. Never
+    // blocks or delays anything real; if this fails for any reason
+    // the first message just stays put, which is a fine fallback.
+    (function () {
+      var messages = [
+        'Setting things up…',
+        'Connecting securely…',
+        'Almost there…'
+      ];
+      var el = document.getElementById('seo-shell-status');
+      if (!el) return;
+      var i = 0;
+      setInterval(function () {
+        i = (i + 1) % messages.length;
+        var span = document.createElement('span');
+        span.textContent = messages[i];
+        el.innerHTML = '';
+        el.appendChild(span);
+      }, 1800);
+    })();
   </script>
 
   <script src="flutter_bootstrap.js" async=""></script>

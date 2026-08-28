@@ -61,7 +61,10 @@ class AfricaCorridorScreen extends StatefulWidget {
 }
 
 class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
-  final CurrencyConversionService _currencyService = CurrencyConversionService();
+  // CurrencyConversionService (Frankfurter-backed) was removed from
+  // this screen's quote flow — see _fetchQuote's comment for why it
+  // was a redundant, unreliable second call for data the real
+  // Eversend quotation already provides.
   final TextEditingController _amountController = TextEditingController(text: '100');
   final TextEditingController _recipientNameController = TextEditingController();
   final TextEditingController _recipientPhoneController = TextEditingController();
@@ -84,6 +87,15 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   double? _exchangeRate;
   double? _platformFeeAmount;
   Map<String, dynamic>? _lastQuote;
+  // Set when a quote preview fails specifically because this
+  // destination currency needs a Klasha-backed bank account set up
+  // first (see paymentRouter.js's getQuotation — this is a real,
+  // deliberate 400 with needsVirtualAccount: true, not a generic
+  // failure). Previously this signal was only ever read at actual
+  // send time, so during the live preview this exact case looked
+  // identical to "no rate available" with no explanation — now shown
+  // clearly while previewing, before the user even taps Send.
+  String? _needsVirtualAccountCurrency;
   bool _isQuoting = false;
   Timer? _debounce;
   bool _isProcessing = false;
@@ -106,7 +118,16 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
       _sourceAfricanCountry = kLiveEversendCorridors
           .firstWhere((c) => c.countryName != _destination.countryName);
     }
-    if (_destination.hasLiveRate) _fetchQuote();
+    // Real fix: previously gated behind hasLiveRate (a static flag,
+    // true only for South Africa/ZAR) because the old rate source
+    // (Frankfurter) genuinely couldn't quote most African currencies.
+    // The real quotation call (Eversend-backed, in _fetchQuote below)
+    // is the actual source of truth for whether a rate is obtainable
+    // — it already has its own honest "Rate unavailable — shown at
+    // delivery" fallback if Eversend itself can't quote a given
+    // corridor, so gating on a separate, stale, overly-conservative
+    // flag here just meant most real destinations never even tried.
+    _fetchQuote();
     _amountController.addListener(_onAmountChanged);
   }
 
@@ -202,7 +223,12 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     // (no network call), so it's always safe to call immediately;
     // only the network-bound quote fetch below is debounced.
     setState(() {});
-    if (!_destination.hasLiveRate) return;
+    // Real fix continued: the same hasLiveRate gate that blocked
+    // "Total you pay" from updating (see the fix above this comment,
+    // from an earlier pass) also blocked the quote fetch itself for
+    // any destination other than South Africa — removed for the same
+    // reason: the real quotation call is the actual source of truth
+    // now, not this static flag.
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 350), _fetchQuote);
   }
@@ -223,22 +249,36 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
         ? _sourceCurrency
         : (_sourceAfricanCountry?.currencyCode ?? 'USD');
 
-    final results = await Future.wait([
-      _currencyService.convertWithRate(
-        amount: amount,
-        base: base,
-        target: _destination.currencyCode,
-      ),
-      _fetchProviderFee(amount: amount, sourceCurrency: base),
-    ]);
-    final result = results[0] as Map<String, dynamic>?;
-    final fee = results[1] as double?;
+    // Real fix: this used to make a SEPARATE call to
+    // CurrencyConversionService (Frankfurter, a free ECB-sourced rate
+    // API) purely to show the converted amount/rate, alongside the
+    // real quotation call in _fetchProviderFee below that already
+    // returns the same numbers. Frankfurter genuinely doesn't support
+    // most African currencies at all (confirmed against their real
+    // supported-currency list — ECB-only, ~31 major currencies), so
+    // this call 404'd for any destination without hasLiveRate (that
+    // gating already existed and correctly limited the blast radius —
+    // but even for the one currency it IS gated to run for, ZAR, it
+    // was still a wasted, redundant second network round-trip for
+    // data the real quotation call already had). Deriving both from
+    // the one real call now, for every destination.
+    final fee = await _fetchProviderFee(amount: amount, sourceCurrency: base);
 
     if (!mounted) return;
+
+    final quotationData = _lastQuote?['data'];
+    final quotation = (quotationData is Map && quotationData['data'] is Map)
+        ? (quotationData['data'] as Map)['quotation']
+        : null;
+
     setState(() {
       _isQuoting = false;
-      _convertedAmount = result?['amount'];
-      _exchangeRate = result?['rate'];
+      _convertedAmount = (quotation is Map && quotation['destAmount'] != null)
+          ? double.tryParse(quotation['destAmount'].toString())
+          : null;
+      _exchangeRate = (quotation is Map && quotation['exchangeRate'] != null)
+          ? double.tryParse(quotation['exchangeRate'].toString())
+          : null;
       _platformFeeAmount = fee;
     });
   }
@@ -263,7 +303,11 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
       },
       authKey: widget.userAuthKey,
     );
-    _lastQuote = response.containsKey('apiRequestError') || response['error'] != null ? null : response;
+    final hasError = response.containsKey('apiRequestError') || response['error'] != null;
+    _lastQuote = hasError ? null : response;
+    _needsVirtualAccountCurrency = (hasError && response['needsVirtualAccount'] == true)
+        ? response['virtualAccountCurrency']?.toString()
+        : null;
 
     final feeBreakdown = response['feeBreakdown'];
     if (feeBreakdown is Map && feeBreakdown['totalFee'] != null) {
@@ -317,7 +361,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
         _convertedAmount = null;
         _exchangeRate = null;
       });
-      if (picked.hasLiveRate) _fetchQuote();
+      _fetchQuote();
     }
   }
 
@@ -734,7 +778,9 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                         Text(
                           _exchangeRate != null
                               ? "1 ${sourceInfo.currencyCode} = ${_exchangeRate!.toStringAsFixed(4)} ${_destination.currencyCode}"
-                              : "Rate unavailable — shown at delivery",
+                              : (_needsVirtualAccountCurrency != null
+                                  ? "Needs a ${_needsVirtualAccountCurrency} bank account — set up below"
+                                  : "Rate unavailable — shown at delivery"),
                           style: TextStyle(
                               fontSize: 13, color: AppColors.textMuted, fontFamily: 'monospace'),
                         ),
@@ -779,7 +825,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                         ? SizedBox(
                             width: 24, height: 24,
                             child: CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.primary))
-                        : (_destination.hasLiveRate && _convertedAmount != null)
+                        : (_convertedAmount != null)
                             ? Text(_formatWhole(_convertedAmount!),
                                 style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: AppColors.ink))
                             // Fixed: this used to render "Unavailable"
@@ -1113,7 +1159,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                     ? SizedBox(
                         width: 20, height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.primary))
-                    : (_destination.hasLiveRate && _convertedAmount != null)
+                    : (_convertedAmount != null)
                         ? Text(_formatWhole(_convertedAmount!),
                             style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.ink))
                         // Same fix as the diaspora layout above — a
@@ -1177,7 +1223,9 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                   Text(
                     _exchangeRate != null
                         ? "1 ${source.currencyCode} = ${_exchangeRate!.toStringAsFixed(4)} ${_destination.currencyCode}"
-                        : "Rate unavailable — shown at delivery",
+                        : (_needsVirtualAccountCurrency != null
+                            ? "Needs a ${_needsVirtualAccountCurrency} bank account — set up below"
+                            : "Rate unavailable — shown at delivery"),
                     style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.ink),
                   ),
                 ],

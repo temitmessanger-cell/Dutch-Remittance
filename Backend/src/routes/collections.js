@@ -25,13 +25,24 @@ const FIXED_CURRENCY_LIMITS = {
   XAF: { min: 800, max: 7000000 },
 };
 
+// Same verifiable-deployment pattern used for the OTP route fix
+// earlier — hit GET /api/v1/collections/deposit-limits/version
+// directly after deploying to confirm this exact file (with the real
+// 800 XAF minimum) is actually live, before assuming a reported wrong
+// number is a new bug rather than a stale deploy.
+const DEPOSIT_LIMITS_VERSION = 'xaf-800-7000000-v1';
+
+router.get('/deposit-limits/version', (req, res) => {
+  res.json({ version: DEPOSIT_LIMITS_VERSION, fixedLimits: FIXED_CURRENCY_LIMITS });
+});
+
 router.get('/deposit-limits', requireAppUser, async (req, res, next) => {
   try {
     const currency = (req.query.currency || '').toUpperCase();
     if (!currency) return res.status(400).json({ error: 'currency is required.' });
 
     if (FIXED_CURRENCY_LIMITS[currency]) {
-      return res.json({ currency, ...FIXED_CURRENCY_LIMITS[currency], source: 'fixed' });
+      return res.json({ currency, ...FIXED_CURRENCY_LIMITS[currency], source: 'fixed', routeVersion: DEPOSIT_LIMITS_VERSION });
     }
 
     const [min, max] = await Promise.all([
@@ -43,7 +54,7 @@ router.get('/deposit-limits', requireAppUser, async (req, res, next) => {
       return res.status(502).json({ error: `Couldn't determine deposit limits for ${currency} right now.` });
     }
 
-    res.json({ currency, min, max, source: 'converted' });
+    res.json({ currency, min, max, source: 'converted', routeVersion: DEPOSIT_LIMITS_VERSION });
   } catch (err) {
     next(err);
   }

@@ -1,0 +1,60 @@
+Flutter Analyze Report
+======================
+
+Command:
+  flutter analyze
+
+Working directory:
+  C:\Users\ikomi henry\Desktop\Dutch_Remit
+
+Result:
+  Exit code: 1
+  2295 issues found. (ran in 17.5s)
+
+Important:
+  The analyzer output is dominated by info-level lint and deprecation
+  diagnostics. The provided output does not show a Dart compile error.
+  The Flutter web build completed successfully before this analysis.
+
+Main diagnostic categories:
+
+1. prefer_const_constructors
+   Add const to constructors where the widget/object can be compile-time
+   constant.
+
+2. prefer_const_literals_to_create_immutables
+   Use const collection literals in immutable widget/object construction.
+
+3. deprecated_member_use
+   Replace deprecated APIs, especially Color.withOpacity(), with the
+   current Flutter API such as Color.withValues() where appropriate.
+
+4. deprecated_member_use
+   dart:html is deprecated for this usage. Prefer package:web and
+   dart:js_interop for web integrations.
+
+5. avoid_web_libraries_in_flutter
+   Web-only libraries should be isolated in Flutter web plugins or an
+   appropriate platform-specific implementation.
+
+6. constant_identifier_names
+   Some constants do not use lowerCamelCase, for example generated icon
+   names such as wallet_business_and_trade.
+
+7. unnecessary_string_interpolations
+   Some strings use interpolation where a plain string would be enough.
+
+Affected areas visible in the analyzer output include:
+  lib/screens/withdraw_screen.dart
+  lib/screens/wire_transfer_request_screen.dart
+  lib/screens/send_money_quote_screen.dart
+  lib/utilities/app_theme.dart
+  lib/utilities/display_error_alert.dart
+  lib/utilities/hadwin_icons.dart
+  lib/utilities/hadwin_markdown_viewer.dart
+  lib/utilities/make_api_request.dart
+  lib/utilities/receipt_downloader_web.dart
+
+The full raw analyzer output exceeded the chat output limit and is available
+in the generated terminal output captured by VS Code. This file records the
+actionable summary without reproducing thousands of repetitive lint entries.

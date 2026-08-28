@@ -2,6 +2,17 @@ import 'dart:convert';
 import 'package:dutch_remit/hadwin_components.dart';
 import 'package:http/http.dart' as http;
 
+// Client-side timeout is 35s, not the more typical 10s — deliberately
+// long enough to comfortably outlast the backend's own worst-case
+// retry sequence (eversendClient.js retries a transient network-level
+// failure up to twice with backoff, inside Eversend's own 20s
+// per-attempt timeout). A shorter client timeout used to race against
+// a backend that was still correctly working in the background,
+// producing the exact "shows a network error, then a few seconds
+// later the real success appears anyway" symptom reported against
+// real deposits — the client gave up and showed a scary error before
+// the backend's own retry had a chance to finish.
+
 Future<Map<String, dynamic>> getData(
     {required String urlPath, String? authKey}) async {
   String backendServiceHost = "${ApiConstants.baseUrl}" + urlPath;
@@ -12,7 +23,7 @@ Future<Map<String, dynamic>> getData(
         'Content-Type': 'application/json',
         if (authKey != null) 'Authorization': authKey
       },
-    ).timeout(const Duration(seconds: 10), onTimeout: () {
+    ).timeout(const Duration(seconds: 35), onTimeout: () {
       throw Exception('Request timed out');
     });
 
@@ -78,7 +89,7 @@ Future<Map<String, dynamic>> sendData(
         if (authKey != null) 'Authorization': authKey
       },
       body: jsonEncode(data),
-    ).timeout(const Duration(seconds: 10), onTimeout: () {
+    ).timeout(const Duration(seconds: 35), onTimeout: () {
       throw Exception('Request timed out');
     });
 
@@ -144,7 +155,7 @@ Future<Map<String, dynamic>> patchData(
         if (authKey != null) 'Authorization': authKey
       },
       body: jsonEncode(data),
-    ).timeout(const Duration(seconds: 10), onTimeout: () {
+    ).timeout(const Duration(seconds: 35), onTimeout: () {
       throw Exception('Request timed out');
     });
 

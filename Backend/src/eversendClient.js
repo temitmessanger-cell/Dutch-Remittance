@@ -92,7 +92,7 @@ class EversendClient {
    * Automatically retries once on a 401 (in case the cached token
    * genuinely expired early) by forcing a fresh token.
    */
-  async request({ method = 'GET', path, params, data, _retried = false }) {
+  async request({ method = 'GET', path, params, data, _retried = false, _networkRetries = 0 }) {
     const token = await this._getToken();
     try {
       const response = await axios({
@@ -114,8 +114,31 @@ class EversendClient {
       const status = err.response?.status;
       if (status === 401 && !_retried) {
         this._token = null;
-        return this.request({ method, path, params, data, _retried: true });
+        return this.request({ method, path, params, data, _retried: true, _networkRetries });
       }
+
+      // Real fix for "deposit fails first, then works a few seconds
+      // later on the exact same request" — confirmed against a real
+      // 502 in production: err.response was undefined (a genuine
+      // network-level failure — timeout, connection reset, a
+      // transient blip reaching Eversend — not a validation error
+      // Eversend actually returned). Previously this surfaced
+      // straight to the user as "Could not reach Eversend right now"
+      // on the very first hiccup. Now retries automatically, twice,
+      // with a short backoff, entirely server-side — the user only
+      // ever sees a failure if it's still failing after 3 total
+      // attempts across ~3 seconds. GET requests always retry safely;
+      // POST/PATCH/DELETE only retry when there's no response at all
+      // (never after Eversend has actually processed something and
+      // responded, even with an error — retrying a POST that Eversend
+      // received and rejected could double-submit a real transaction).
+      const isNetworkLevelFailure = !err.response;
+      const maxNetworkRetries = 2;
+      if (isNetworkLevelFailure && _networkRetries < maxNetworkRetries) {
+        await new Promise((resolve) => setTimeout(resolve, 700 * (_networkRetries + 1)));
+        return this.request({ method, path, params, data, _retried, _networkRetries: _networkRetries + 1 });
+      }
+
       // Normalize the error so route handlers can pass a clean shape
       // back to the Flutter app instead of leaking axios internals.
       // The final fallback ('Something went wrong...') is deliberately
@@ -136,7 +159,10 @@ class EversendClient {
       const message =
         (typeof rawMessage === 'string' && rawMessage) ||
         (rawMessage && typeof rawMessage === 'object' && typeof rawMessage.message === 'string' && rawMessage.message) ||
-        (err.response ? 'Something went wrong on our end. Please try again.' : 'Could not reach Eversend right now. Please try again shortly.');
+        // Never say "Eversend" to the user — see the copy rule
+        // established across the whole app; this specific message
+        // used to name the provider directly.
+        (err.response ? 'Something went wrong on our end. Please try again.' : "We couldn't complete this right now. Please try again in a moment.");
       const normalized = new Error(message);
       normalized.status = status || 502;
       normalized.details = err.response?.data;

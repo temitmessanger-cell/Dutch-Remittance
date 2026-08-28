@@ -28,7 +28,10 @@ class SendMoneyQuoteScreen extends StatefulWidget {
 
 class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
   static const List<String> _sourceCurrencies = ['GBP', 'USD', 'EUR'];
-  final CurrencyConversionService _currencyService = CurrencyConversionService();
+  // CurrencyConversionService (Frankfurter-backed) was removed from
+  // this screen's quote flow — see _fetchQuote's comment for why it
+  // was structurally guaranteed to fail for this screen's fixed NGN
+  // destination.
   final TextEditingController _amountController = TextEditingController(text: '500');
   final ContactsStorage _contactsStorage = ContactsStorage();
 
@@ -122,38 +125,18 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
       return;
     }
     setState(() => _isQuoting = true);
-    final results = await Future.wait([
-      _currencyService.convertWithRate(
-        amount: amount,
-        base: _sourceCurrency,
-        target: 'NGN',
-      ),
-      _fetchProviderFee(amount),
-    ]);
-    final result = results[0] as Map<String, dynamic>?;
-    final fee = results[1] as double?;
-    if (!mounted) return;
-    setState(() {
-      _isQuoting = false;
-      // No fabricated fallback — a previous version defaulted to
-      // "amount * 1710" / "rate: 1710" whenever the real conversion
-      // service returned nothing, presented identically to a real
-      // rate with no indication it was a guess. If the service
-      // genuinely has no rate right now, this is null and the UI
-      // shows an honest "Rate unavailable" instead (see build()
-      // below), never an invented number.
-      _convertedAmount = result?['amount'] as double?;
-      _exchangeRate = result?['rate'] as double?;
-      _fee = fee;
-    });
-  }
 
-  /// Dutch Remit's fee: whatever Eversend actually charges for this
-  /// corridor, plus a 1.2% margin on top of that (computed
-  /// server-side — Backend/src/paymentRouter.js's applyPlatformMarkup)
-  /// — not a flat number picked in the UI. Null (shown as "—") if the
-  /// quotation call fails, rather than a guessed fee.
-  Future<double?> _fetchProviderFee(double amount) async {
+    // Real fix: this used to make a SECOND, separate call to
+    // Frankfurter (a free ECB-sourced rate API) purely to show the
+    // converted amount/rate, alongside the real quotation call below
+    // that was only used for the fee. Frankfurter's supported
+    // currency list is ECB-only (USD, EUR, GBP, and ~30 other major
+    // currencies) — NGN, this screen's fixed destination, isn't in
+    // it and never will be, so that call 404'd on every single use,
+    // guaranteed, not intermittently. The real quotation call already
+    // returns the actual exchange rate and converted amount in the
+    // same response the fee was already being read from — deriving
+    // both from ONE real call instead of a doomed second one.
     final response = await sendData(
       urlPath: "/api/v1/rates/quotation",
       data: {
@@ -166,11 +149,44 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
       },
       authKey: widget.userAuthKey,
     );
-    final feeBreakdown = response['feeBreakdown'];
-    if (feeBreakdown is Map && feeBreakdown['totalFee'] != null) {
-      return double.tryParse(feeBreakdown['totalFee'].toString());
+
+    if (!mounted) return;
+
+    if (response.containsKey('apiRequestError') || response['error'] != null) {
+      setState(() {
+        _isQuoting = false;
+        _convertedAmount = null;
+        _exchangeRate = null;
+        _fee = null;
+      });
+      return;
     }
-    return null;
+
+    final quotationData = response['data'];
+    final quotation = (quotationData is Map && quotationData['data'] is Map)
+        ? (quotationData['data'] as Map)['quotation']
+        : null;
+    final feeBreakdown = response['feeBreakdown'];
+
+    setState(() {
+      _isQuoting = false;
+      // No fabricated fallback — a previous version defaulted to
+      // "amount * 1710" / "rate: 1710" whenever the real conversion
+      // service returned nothing, presented identically to a real
+      // rate with no indication it was a guess. If the service
+      // genuinely has no rate right now, this is null and the UI
+      // shows an honest "Rate unavailable" instead (see build()
+      // below), never an invented number.
+      _convertedAmount = (quotation is Map && quotation['destAmount'] != null)
+          ? double.tryParse(quotation['destAmount'].toString())
+          : null;
+      _exchangeRate = (quotation is Map && quotation['exchangeRate'] != null)
+          ? double.tryParse(quotation['exchangeRate'].toString())
+          : null;
+      _fee = (feeBreakdown is Map && feeBreakdown['totalFee'] != null)
+          ? double.tryParse(feeBreakdown['totalFee'].toString())
+          : null;
+    });
   }
 
   void _selectSourceCurrency(String code) {

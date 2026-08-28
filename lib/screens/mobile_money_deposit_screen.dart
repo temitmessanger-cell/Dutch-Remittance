@@ -246,6 +246,22 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
       _errorMessage = null;
     });
 
+    // Real fix: the cooldown timer used to only start on a SUCCESSFUL
+    // request — meaning the one case it most needed to catch (a
+    // repeat OTP request that Eversend's own rate limit genuinely
+    // rejects) never engaged it at all. The user would see Eversend's
+    // raw rejection, and only the next successful request afterward
+    // would start our cooldown tracking — exactly matching "shows
+    // error, then after the timeout passes it goes through" on the
+    // very next real attempt. Starting the cooldown here, before the
+    // request even goes out, means the button locks immediately on
+    // every attempt (success or failure) and a second tap during
+    // Eversend's real rate-limit window is caught by our own UI
+    // before it ever reaches Eversend again.
+    _lastOtpRequestTime = DateTime.now();
+    _lastOtpRequestedPhone = phone;
+    _startCooldownTimer();
+
     final result = await sendData(
       urlPath: "/api/v1/collections/otp",
       data: {"phone": phone},
@@ -256,14 +272,32 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
     setState(() => _isRequestingOtp = false);
 
     if (result.containsKey('apiRequestError') || result['error'] != null) {
-      setState(() => _errorMessage =
-          result['error']?.toString() ?? result['apiRequestError'].toString());
+      final rawError = result['error']?.toString() ?? result['apiRequestError'].toString();
+      final looksLikeRateLimit = rawError.toLowerCase().contains('rate limit') ||
+          rawError.toLowerCase().contains('too many') ||
+          rawError.toLowerCase().contains('try again later');
+      if (looksLikeRateLimit) {
+        // The cooldown timer (already running, started before this
+        // request went out) is the visible signal here instead of
+        // layering a raw, Eversend-flavored rejection message on top
+        // of it.
+        setState(() => _errorMessage = null);
+      } else {
+        // Not a rate-limit rejection — this failure isn't really
+        // subject to Eversend's cooldown window at all (a genuine
+        // network error, an invalid phone, etc.), so don't lock the
+        // user out of retrying for the full cooldown period on
+        // something unrelated. Cancel the optimistically-started
+        // timer and show the real error instead.
+        _cooldownTicker?.cancel();
+        setState(() {
+          _cooldownSecondsRemaining = 0;
+          _lastOtpRequestTime = null;
+          _errorMessage = rawError;
+        });
+      }
       return;
     }
-
-    _lastOtpRequestTime = DateTime.now();
-    _lastOtpRequestedPhone = phone;
-    _startCooldownTimer();
 
     setState(() {
       _otpPinId = result['pinId']?.toString() ?? result['data']?['pinId']?.toString();

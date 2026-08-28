@@ -18,8 +18,20 @@ router.post('/eversend', async (req, res) => {
   const signature = req.headers['x-eversend-signature'];
   const secret = process.env.EVERSEND_WEBHOOK_SECRET;
 
+  // Loud, specific logging here on purpose: a silently-misconfigured
+  // webhook is the single most likely reason a real, successful
+  // deposit never shows up in a user's tracked balance — Eversend
+  // genuinely received the money and confirmed it, but if this route
+  // never accepts the callback, wallet_ledger is never credited and
+  // the wallet stays at $0 forever with no visible error anywhere
+  // else in the app. This log line is the fastest way to confirm
+  // whether that's what's actually happening.
   if (!secret || secret.startsWith('replace_after')) {
-    console.warn('EVERSEND_WEBHOOK_SECRET is not configured — rejecting webhook.');
+    console.error(
+      '[webhooks/eversend] REJECTED — EVERSEND_WEBHOOK_SECRET is not set (or still the placeholder) in this environment. ' +
+      'Every incoming Eversend webhook is being rejected right now, which means deposits will never be credited to wallet_ledger. ' +
+      'Set the real secret from the Eversend dashboard (Settings -> Developers -> Webhook) as EVERSEND_WEBHOOK_SECRET in Railway.'
+    );
     return res.status(500).send('Webhook secret not configured.');
   }
 
@@ -29,8 +41,15 @@ router.post('/eversend', async (req, res) => {
     .digest('hex');
 
   if (expectedHash !== signature) {
+    console.error(
+      `[webhooks/eversend] REJECTED — signature mismatch. This means either EVERSEND_WEBHOOK_SECRET in Railway ` +
+      `does not match the secret shown on Eversend's dashboard for this webhook, or the request genuinely isn't from Eversend. ` +
+      `Received signature header: ${signature ? '(present)' : '(MISSING — check the webhook is actually configured to send x-eversend-signature)'}`
+    );
     return res.status(401).send('Invalid signature.');
   }
+
+  console.log('[webhooks/eversend] Signature verified — processing webhook.');
 
   let payload;
   try {
@@ -47,16 +66,55 @@ router.post('/eversend', async (req, res) => {
 
   // Best-effort: if the payload references a transaction we already
   // recorded (by Eversend's own reference), keep it in sync.
+  //
+  // This field-name list was never confirmed against a real Eversend
+  // webhook payload (no network access to Eversend from the
+  // environment this was originally written in) — it was a
+  // defensive guess. If the real payload uses a field name not
+  // covered here, `reference` ends up undefined and this ENTIRE
+  // block — including the deposit credit further down — is skipped
+  // completely silently, with no error anywhere. This is a strong
+  // candidate for "a real deposit happened but the wallet stays at
+  // $0 forever with nothing visibly wrong." Broadened the field list
+  // and added logging specifically so this becomes visible in Railway
+  // logs instead of a silent no-op if it's still wrong.
   const reference =
-    payload.transactionRef || payload.reference || payload.data?.transactionRef;
+    payload.transactionRef ||
+    payload.reference ||
+    payload.transactionReference ||
+    payload.ref ||
+    payload.data?.transactionRef ||
+    payload.data?.reference ||
+    payload.data?.transactionReference ||
+    payload.data?.ref ||
+    payload.data?.id;
+
+  console.log('[webhooks/eversend] payload received', {
+    eventType: payload.event ?? payload.type ?? 'unknown',
+    extractedReference: reference || '(none found — check the field name list above against the real payload logged here)',
+    payloadKeys: Object.keys(payload || {}),
+    dataKeys: payload.data ? Object.keys(payload.data) : null,
+  });
+
   if (reference) {
     const newStatus = payload.status || payload.data?.status || 'updated';
-    const { data: updatedTxn } = await supabaseAdmin
+    const { data: updatedTxn, error: updateErr } = await supabaseAdmin
       .from('transactions')
       .update({ status: newStatus })
       .eq('eversend_reference', reference)
       .select('id, user_id, type, amount, currency, status')
       .maybeSingle();
+
+    if (updateErr) {
+      console.error('[webhooks/eversend] Supabase update failed', updateErr);
+    } else if (!updatedTxn) {
+      console.warn(
+        `[webhooks/eversend] No transaction row found with eversend_reference = "${reference}". ` +
+        `This means the reference the webhook sent doesn't match what was stored when the deposit was ` +
+        `initiated (see collections.js's POST /momo, which stores eversend_reference from Eversend's own ` +
+        `response) — the transaction status/balance credit for this event was skipped.`
+      );
+    }
 
     // Real fund-safety credit: only once a deposit reaches a
     // genuinely confirmed status (never "pending") does the user's
@@ -84,12 +142,15 @@ router.post('/eversend', async (req, res) => {
           const amountUsd = await convertToUsd(updatedTxn.amount, updatedTxn.currency);
           if (amountUsd != null && amountUsd > 0) {
             await credit(updatedTxn.user_id, amountUsd, `deposit (${updatedTxn.currency})`, updatedTxn.id);
+            console.log(`[webhooks/eversend] Credited user ${updatedTxn.user_id}: $${amountUsd.toFixed(2)} USD (${updatedTxn.amount} ${updatedTxn.currency})`);
+          } else {
+            console.error(`[webhooks/eversend] convertToUsd returned null/0 for ${updatedTxn.amount} ${updatedTxn.currency} — deposit confirmed but NOT credited to wallet_ledger.`);
           }
-        } catch (_) {
-          // Non-fatal — the transaction status itself is already
-          // updated; a missed ledger credit here needs manual
-          // reconciliation rather than failing the whole webhook.
+        } catch (creditErr) {
+          console.error('[webhooks/eversend] credit() threw — deposit confirmed but NOT credited to wallet_ledger.', creditErr);
         }
+      } else {
+        console.log(`[webhooks/eversend] Transaction status is "${updatedTxn.status}", not yet a confirmed status — no credit issued (correct behavior, waiting for a genuinely completed status).`);
       }
     }
 
