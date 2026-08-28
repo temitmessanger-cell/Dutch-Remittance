@@ -208,8 +208,19 @@ class _TopUpScreenState extends State<TopUpScreen> {
                       ? Icon(Icons.check_circle_rounded, color: AppColors.primary)
                       : null,
                   onTap: () {
-                    _selectMethod(method);
+                    // Real fix: for Crypto, _selectMethod() pushes
+                    // CryptoScreen via Navigator.push — but this sheet
+                    // was then calling Navigator.pop() on the SHEET's
+                    // own context immediately afterward, which popped
+                    // the just-pushed CryptoScreen right back off
+                    // almost instantly (or raced against it
+                    // unpredictably), making it look like tapping
+                    // Crypto did nothing at all. Closing the sheet
+                    // FIRST, then calling _selectMethod(), means the
+                    // pop only ever affects this sheet, never
+                    // whatever _selectMethod pushes afterward.
                     Navigator.of(sheetContext).pop();
+                    _selectMethod(method);
                   },
                 )),
             const SizedBox(height: 8),

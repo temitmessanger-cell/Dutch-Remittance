@@ -940,13 +940,153 @@ class _StatTile extends StatelessWidget {
 /// Uses placeholder digits and a generic "VISA"-style wordmark since
 /// this screen is shown before any account exists — never a real
 /// card number.
-class _DutchRemitCardMockup extends StatelessWidget {
+/// Animates the card mockup building itself — money (coin glyphs)
+/// flowing in from below, then the card scaling/fading into place
+/// once the "funding" completes, settling into its final tilted rest
+/// position. Loops on a delay so it replays if the user lingers on
+/// this section, without being distracting on first paint (starts
+/// automatically once the section scrolls into the fade-in sequence
+/// via the parent's _fadeSlide).
+class _DutchRemitCardMockup extends StatefulWidget {
   final Color heroTop;
   final Color heroBottom;
   final Color gold;
 
   const _DutchRemitCardMockup(
       {required this.heroTop, required this.heroBottom, required this.gold});
+
+  @override
+  State<_DutchRemitCardMockup> createState() => _DutchRemitCardMockupState();
+}
+
+class _DutchRemitCardMockupState extends State<_DutchRemitCardMockup>
+    with TickerProviderStateMixin {
+  late final AnimationController _controller;
+  static const List<double> _coinDelays = [0.0, 0.12, 0.24, 0.36];
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    );
+    _playOnce();
+  }
+
+  Future<void> _playOnce() async {
+    // A brief pause before the first play so it doesn't fire the
+    // instant this widget mounts, mid-scroll — reads more like a
+    // deliberate reveal than a jarring auto-start.
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+    await _controller.forward();
+    // Replays after a pause, so a user who lingers on this section
+    // sees it again rather than a single one-shot animation.
+    while (mounted) {
+      await Future.delayed(const Duration(seconds: 3));
+      if (!mounted) return;
+      await _controller.reverse();
+      if (!mounted) return;
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (!mounted) return;
+      await _controller.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        // Coins fly in and fade out across the first ~55% of the
+        // timeline; the card itself materializes across the back
+        // half, so the sequence reads as "money arrives, then the
+        // card is built from it" rather than both happening at once.
+        final coinsProgress = (_controller.value / 0.55).clamp(0.0, 1.0);
+        final cardProgress = ((_controller.value - 0.35) / 0.65).clamp(0.0, 1.0);
+        final cardCurved = Curves.easeOutBack.transform(cardProgress);
+
+        return SizedBox(
+          width: 340,
+          height: 260,
+          child: Stack(
+            alignment: Alignment.center,
+            clipBehavior: Clip.none,
+            children: [
+              // Floating coin glyphs, each on its own delayed
+              // easeOutCubic arc from below into the card's center.
+              for (int i = 0; i < _coinDelays.length; i++)
+                _buildCoin(i, coinsProgress),
+              // The card itself: starts scaled-down/invisible/lower,
+              // eases up into its final tilted resting position.
+              Transform.translate(
+                offset: Offset(0, 30 * (1 - cardCurved)),
+                child: Transform.scale(
+                  scale: 0.7 + (0.3 * cardCurved),
+                  child: Opacity(
+                    opacity: cardCurved.clamp(0.0, 1.0),
+                    child: child,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      child: _CardFace(heroTop: widget.heroTop, heroBottom: widget.heroBottom, gold: widget.gold),
+    );
+  }
+
+  Widget _buildCoin(int index, double coinsProgress) {
+    final delay = _coinDelays[index];
+    final local = ((coinsProgress - delay) / (1 - delay)).clamp(0.0, 1.0);
+    if (local <= 0.0 || local >= 1.0) return const SizedBox.shrink();
+    final eased = Curves.easeOutCubic.transform(local);
+    // Each coin starts from a slightly different horizontal offset
+    // below the card and converges toward its center as it rises.
+    final startX = [-70.0, 40.0, -30.0, 80.0][index];
+    final dx = startX * (1 - eased);
+    final dy = 130 * (1 - eased) - 10;
+    final opacity = local < 0.15 ? local / 0.15 : (local > 0.8 ? (1 - local) / 0.2 : 1.0);
+
+    return Transform.translate(
+      offset: Offset(dx, dy),
+      child: Opacity(
+        opacity: opacity.clamp(0.0, 1.0),
+        child: Container(
+          width: 26,
+          height: 26,
+          decoration: BoxDecoration(
+            color: widget.gold,
+            shape: BoxShape.circle,
+            boxShadow: [BoxShadow(color: widget.gold.withOpacity(0.4), blurRadius: 10)],
+          ),
+          alignment: Alignment.center,
+          child: Text('\$',
+              style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w800, color: widget.heroTop)),
+        ),
+      ),
+    );
+  }
+}
+
+/// The static card visual itself — separated from the animation
+/// state above so AnimatedBuilder's `child` param can reuse this one
+/// built widget across every animation frame instead of rebuilding
+/// it 60 times a second.
+class _CardFace extends StatelessWidget {
+  final Color heroTop;
+  final Color heroBottom;
+  final Color gold;
+
+  const _CardFace({required this.heroTop, required this.heroBottom, required this.gold});
 
   @override
   Widget build(BuildContext context) {
@@ -1106,7 +1246,15 @@ class _DutchRemitCardMockup extends StatelessWidget {
   }
 }
 
-class _SendPreviewCard extends StatelessWidget {
+/// Animates the send-preview card the same way the card-creation
+/// mockup above it animates: the "You send" amount counts up, then
+/// money visually flows down the connector toward "They receive,"
+/// landing as the destination amount counts up in turn. Previously
+/// this whole card was completely static — a real gap, since the
+/// card mockup right above it in the same screen already had a real
+/// animated build sequence and this, the actual remittance product
+/// the app is for, had none at all.
+class _SendPreviewCard extends StatefulWidget {
   final Color heroTop;
   final Color gold;
   final Color ink;
@@ -1119,118 +1267,206 @@ class _SendPreviewCard extends StatelessWidget {
       required this.inkMuted});
 
   @override
+  State<_SendPreviewCard> createState() => _SendPreviewCardState();
+}
+
+class _SendPreviewCardState extends State<_SendPreviewCard>
+    with TickerProviderStateMixin {
+  late final AnimationController _controller;
+  static const double _sendAmount = 100.0;
+  static const double _receiveAmount = 62650.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2600),
+    );
+    _playOnce();
+  }
+
+  Future<void> _playOnce() async {
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+    await _controller.forward();
+    while (mounted) {
+      await Future.delayed(const Duration(seconds: 3));
+      if (!mounted) return;
+      _controller.value = 0;
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (!mounted) return;
+      await _controller.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: heroTop.withOpacity(0.16),
-            blurRadius: 34,
-            offset: const Offset(0, 14),
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        // Three phases on one timeline: "You send" counts up (0-35%),
+        // a coin travels down the connector (30-70%), "They receive"
+        // counts up as the coin lands (60-100%) — slight overlaps so
+        // it reads as one continuous flow of money, not three
+        // separate disconnected beats.
+        final sendProgress = Curves.easeOutCubic.transform((_controller.value / 0.35).clamp(0.0, 1.0));
+        final travelProgress = Curves.easeInOutCubic.transform(
+            ((_controller.value - 0.30) / 0.40).clamp(0.0, 1.0));
+        final receiveProgress = Curves.easeOutCubic.transform(
+            ((_controller.value - 0.60) / 0.40).clamp(0.0, 1.0));
+
+        final sendValue = _sendAmount * sendProgress;
+        final receiveValue = _receiveAmount * receiveProgress;
+        final showCoin = travelProgress > 0.0 && travelProgress < 1.0;
+
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [
+              BoxShadow(
+                color: widget.heroTop.withOpacity(0.16),
+                blurRadius: 34,
+                offset: const Offset(0, 14),
+              ),
+            ],
+            border: Border.all(color: const Color(0xFFE2E8F0)),
           ),
-        ],
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFECFDF5),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+          child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _headerRow(),
+            const SizedBox(height: 18),
+            _AmountRow(
+              label: 'You send',
+              amount: sendValue.toStringAsFixed(2),
+              currency: 'USD',
+              flag: '🇺🇸',
+              ink: widget.ink,
+              inkMuted: widget.inkMuted,
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: SizedBox(
+                height: 32,
+                child: Stack(
+                  alignment: Alignment.center,
+                  clipBehavior: Clip.none,
                   children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                          color: Color(0xFF1FB17A), shape: BoxShape.circle),
+                    Row(
+                      children: [
+                        Expanded(child: Container(height: 1, color: const Color(0xFFE2E8F0))),
+                        const SizedBox(width: 44),
+                        Expanded(child: Container(height: 1, color: const Color(0xFFE2E8F0))),
+                      ],
                     ),
-                    const SizedBox(width: 6),
-                    Text('LIVE RATE',
-                        style: GoogleFonts.manrope(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.2,
-                            color: const Color(0xFF1FB17A))),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: widget.heroTop, shape: BoxShape.circle),
+                      child: const Icon(Icons.arrow_downward_rounded, size: 14, color: Colors.white),
+                    ),
+                    // The traveling coin — starts just under the
+                    // arrow (money leaving "You send") and eases down
+                    // to just above "They receive" as travelProgress
+                    // advances.
+                    if (showCoin)
+                      Transform.translate(
+                        offset: Offset(0, -6 + (28 * travelProgress)),
+                        child: Opacity(
+                          opacity: (travelProgress < 0.9 ? 1.0 : (1 - travelProgress) * 10).clamp(0.0, 1.0),
+                          child: Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: widget.gold,
+                              shape: BoxShape.circle,
+                              boxShadow: [BoxShadow(color: widget.gold.withOpacity(0.5), blurRadius: 8)],
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
-              const Spacer(),
-              Text('Preview',
+            ),
+            _AmountRow(
+              label: 'They receive',
+              amount: receiveValue == 0
+                  ? '0'
+                  : receiveValue.toStringAsFixed(0).replaceAllMapped(
+                      RegExp(r'\B(?=(\d{3})+(?!\d))'), (m) => ','),
+              currency: 'XAF',
+              flag: '🇨🇲',
+              ink: widget.ink,
+              inkMuted: widget.inkMuted,
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.bolt_rounded, size: 16, color: widget.gold),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Arrives in under 5 minutes · Mobile money',
+                        style: GoogleFonts.manrope(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: widget.inkMuted)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        );
+      },
+    );
+  }
+
+  Widget _headerRow() {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFFECFDF5),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(color: Color(0xFF1FB17A), shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+              Text('LIVE RATE',
                   style: GoogleFonts.manrope(
-                      fontSize: 11, fontWeight: FontWeight.w600, color: inkMuted)),
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                      color: const Color(0xFF1FB17A))),
             ],
           ),
-          const SizedBox(height: 18),
-          _AmountRow(
-            label: 'You send',
-            amount: '100.00',
-            currency: 'USD',
-            flag: '🇺🇸',
-            ink: ink,
-            inkMuted: inkMuted,
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              children: [
-                Expanded(child: Container(height: 1, color: const Color(0xFFE2E8F0))),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: heroTop,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.arrow_downward_rounded,
-                        size: 14, color: Colors.white),
-                  ),
-                ),
-                Expanded(child: Container(height: 1, color: const Color(0xFFE2E8F0))),
-              ],
-            ),
-          ),
-          _AmountRow(
-            label: 'They receive',
-            amount: '62,650',
-            currency: 'XAF',
-            flag: '🇨🇲',
-            ink: ink,
-            inkMuted: inkMuted,
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.bolt_rounded, size: 16, color: gold),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('Arrives in under 5 minutes · Mobile money',
-                      style: GoogleFonts.manrope(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: inkMuted)),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        ),
+        const Spacer(),
+        Text('Preview',
+            style: GoogleFonts.manrope(fontSize: 11, fontWeight: FontWeight.w600, color: widget.inkMuted)),
+      ],
     );
   }
 }

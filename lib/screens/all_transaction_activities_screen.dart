@@ -99,7 +99,7 @@ class AllTransactionActivitiesState extends State<AllTransactionActivities> {
             (a, b) => b['transactionDate'].compareTo(a['transactionDate']));
         for (var transaction in allTransactions) {
           String dateResponse =
-              customGroup(DateTime.parse(transaction['transactionDate']));
+              customGroup(DateTime.parse(transaction['transactionDate']).toLocal());
           transaction['dateGroup'] = dateResponse;
         }
       });
@@ -357,7 +357,8 @@ class AllTransactionActivitiesState extends State<AllTransactionActivities> {
                               .hasMatch(dateFormatter(
                                       transaction['dateGroup'],
                                       DateTime.parse(
-                                          transaction['transactionDate']))
+                                              transaction['transactionDate'])
+                                          .toLocal())
                                   .toLowerCase()))
                       .toList();
                   List<dynamic> amountMatch = allTransactions
@@ -515,7 +516,8 @@ class AllTransactionActivitiesState extends State<AllTransactionActivities> {
                                 dateFormatter(
                                     transaction['dateGroup'],
                                     DateTime.parse(
-                                        transaction['transactionDate'])),
+                                            transaction['transactionDate'])
+                                        .toLocal()),
                                 style: TextStyle(
                                     fontSize: 12, color: AppColors.textMuted),
                               ),

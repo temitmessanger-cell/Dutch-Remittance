@@ -16,6 +16,7 @@ import 'package:dutch_remit/utilities/make_api_request.dart';
 import 'package:dutch_remit/utilities/slide_right_route.dart';
 import 'package:dutch_remit/screens/virtual_accounts_screen.dart';
 import 'package:dutch_remit/components/shared/phone_number_field.dart';
+import 'package:dutch_remit/components/shared/money_flow_animation.dart';
 
 /// Which of the two structurally-similar corridors this screen is
 /// rendering. `diaspora` mirrors the Wise-style "SEND MONEY" quote
@@ -86,6 +87,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   bool _isQuoting = false;
   Timer? _debounce;
   bool _isProcessing = false;
+  bool _processingOverlayShown = false;
   String? _errorMessage;
   int _payoutMethod = 0; // 0 = Mobile money, 1 = Bank account, 2 = Dutch Bank
 
@@ -319,6 +321,33 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     }
   }
 
+  void _showProcessingOverlay() {
+    if (_processingOverlayShown) return;
+    _processingOverlayShown = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.lg)),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: MoneyFlowAnimation(
+            fromLabel: _isDiaspora ? currencyInfoFor(_sourceCurrency).flagEmoji : (_sourceAfricanCountry?.flagEmoji ?? '💰'),
+            toLabel: _destination.flagEmoji,
+            statusText: "Sending your transfer…",
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _hideProcessingOverlay() {
+    if (!_processingOverlayShown) return;
+    _processingOverlayShown = false;
+    Navigator.of(context, rootNavigator: true).pop();
+  }
+
   Future<void> _confirmSend() async {
     if (_isGuest) {
       _showCreateAccountPrompt();
@@ -379,6 +408,12 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
       _errorMessage = null;
     });
 
+    // Real "your money is moving" visualization while the payout
+    // actually executes — previously this screen only showed a bare
+    // button spinner, the same as top-up and withdrawal did before
+    // this pass.
+    _showProcessingOverlay();
+
     final transactionRef = 'DR-${DateTime.now().millisecondsSinceEpoch}';
     final nameParts = _recipientNameController.text.trim().split(' ');
     final firstName = nameParts.first;
@@ -408,6 +443,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     if (!mounted) return;
 
     if (payoutResult.containsKey('apiRequestError') || payoutResult['error'] != null) {
+      _hideProcessingOverlay();
       setState(() => _isProcessing = false);
 
       if (payoutResult['needsVirtualAccount'] == true) {
@@ -490,6 +526,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
       'transactionMemberName':
           "Transfer to ${_destination.countryName} (${_destination.currencyCode})",
       'transactionAmount': amount.toStringAsFixed(2),
+      'currency': _isDiaspora ? _sourceCurrency : (_sourceAfricanCountry?.currencyCode ?? 'USD'),
       'transactionType': 'debit',
       'transactionDate': now.toIso8601String(),
       'dateGroup': customGroup(now),
@@ -515,6 +552,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     await Provider.of<UserLoginStateProvider>(context, listen: false)
         .syncBalanceFromEversend(widget.userAuthKey);
 
+    _hideProcessingOverlay();
     setState(() => _isProcessing = false);
 
     await showTransactionReceipt(

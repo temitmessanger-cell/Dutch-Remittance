@@ -154,15 +154,6 @@ async function debitIfSufficient(userId, amountUsd, reason, referenceTransaction
  * cycle and let a manual reconciliation catch it, rather than
  * guessing a number).
  */
-/**
- * Converts [amount] in [currency] to USD using Eversend's confirmed
- * real exchange-quotation endpoint (POST /exchanges/quotation — the
- * same one crypto.js's withdrawal flow already uses). Returns null if
- * the conversion genuinely can't be determined right now, so callers
- * can decide how to handle that (e.g. skip crediting the ledger this
- * cycle and let a manual reconciliation catch it, rather than
- * guessing a number).
- */
 async function convertToUsd(amount, currency) {
   if (currency === 'USD') return Number(amount);
   try {
@@ -198,11 +189,45 @@ async function convertToUsd(amount, currency) {
   }
 }
 
+/**
+ * The reverse of convertToUsd: converts a USD [amountUsd] into
+ * [currency]. Used to show real, live-converted deposit min/max
+ * figures per currency (e.g. "$1-$5000" shown as "800-3,000,000 XAF")
+ * instead of a single USD number the user has to mentally convert
+ * themselves. Same real exchange-quotation endpoint, same honest
+ * null-on-failure behavior — no invented fallback rate.
+ */
+async function convertFromUsd(amountUsd, currency) {
+  if (currency === 'USD') return Number(amountUsd);
+  try {
+    const quote = await eversend.post('/exchanges/quotation', {
+      from: 'USD',
+      amount: amountUsd,
+      to: currency,
+    });
+    const quotation = quote?.data?.data?.quotation ?? quote?.data?.quotation ?? quote?.quotation;
+    const converted = quotation?.destAmount;
+    if (converted == null) {
+      console.error('[convertFromUsd] no destAmount in quotation response', {
+        amountUsd, currency, quote: JSON.stringify(quote).slice(0, 500),
+      });
+      return null;
+    }
+    return Number(converted);
+  } catch (err) {
+    console.error('[convertFromUsd] exchange quotation call failed', {
+      amountUsd, currency, message: err.message, status: err.status, details: err.details,
+    });
+    return null;
+  }
+}
+
 module.exports = {
   getBalanceUsd,
   credit,
   debitIfSufficient,
   convertToUsd,
+  convertFromUsd,
   validateDepositAmountUsd,
   MIN_DEPOSIT_USD,
   MAX_DEPOSIT_USD,

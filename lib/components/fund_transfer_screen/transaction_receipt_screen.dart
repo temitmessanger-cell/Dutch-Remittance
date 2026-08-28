@@ -231,8 +231,9 @@ TextStyle _receiptHeaders =
                                               2.4,
                                           child: Text(
                                             dateToWords(DateTime.parse(
-                                                transactionReceipt[
-                                                    'transactionDate'])),
+                                                    transactionReceipt[
+                                                        'transactionDate'])
+                                                .toLocal()),
                                             style: _receiptValues,
                                           ),
                                         ),

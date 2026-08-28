@@ -38,6 +38,13 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
   final CurrencyConversionService _currencyService = CurrencyConversionService();
   String _displayCurrency = 'USD';
 
+  // History tab (Contacts <-> History): merges real transactions with
+  // real notifications (GET /api/v1/notifications, same endpoint the
+  // Payments tab's Notifications upper nav already uses) into one
+  // horizontal, 2-row feed — see _buildHistoryTabContent below.
+  List<Map<String, dynamic>> _historyNotifications = [];
+  bool _isLoadingHistoryNotifications = true;
+
   // The only currencies the home balance card can display, per
   // product decision — NGN and GHS require a bank account (see
   // VirtualAccountsScreen / klasha.js) to actually be usable, so they
@@ -74,6 +81,7 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
     super.initState();
     getTransactionsFromApi();
     _loadBankAccounts();
+    _loadHistoryNotifications();
 
     // Best-effort: replace the locally-tracked balance with the real
     // Eversend wallet balance as soon as the backend is reachable, so
@@ -448,7 +456,7 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
                     key: ValueKey(_activeHomeTab),
                     child: _activeHomeTab == 0
                         ? _buildContactsTabContent(context)
-                        : _buildTransactionsTabContent(context),
+                        : _buildHistoryTabContent(context),
                   ),
                 ),
               ),
@@ -467,7 +475,7 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
       child: Row(
         children: [
           Expanded(child: _homeTabButton(label: "Contacts", index: 0)),
-          Expanded(child: _homeTabButton(label: "Transactions", index: 1)),
+          Expanded(child: _homeTabButton(label: "History", index: 1)),
         ],
       ),
     );
@@ -502,102 +510,165 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
       future: getData(
           urlPath: "/Dutch Remit/v3/all-contacts", authKey: widget.userAuthKey!),
       builder: (context, snapshot) {
+        // Real fix: this used to be a vertically-scrolling
+        // GridView(crossAxisCount: 4) — a wrapping grid, not the
+        // horizontal "recent/most-contacted" strip the home screen
+        // is supposed to show. Now a horizontally-scrolling grid with
+        // a fixed 2-row height, matching "2 horizontal columns" —
+        // shows only the most recent/most-contacted people at a
+        // glance without pushing the rest of the home screen down.
         if (!snapshot.hasData) {
-          return GridView.builder(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 4, mainAxisSpacing: 16, crossAxisSpacing: 8),
-            itemCount: 8,
-            itemBuilder: (_, __) => Column(
-              children: [
-                FadeShimmer.round(size: 56, fadeTheme: FadeTheme.light),
-                const SizedBox(height: 6),
-                FadeShimmer(height: 10, width: 40, fadeTheme: FadeTheme.light),
-              ],
+          return SizedBox(
+            height: 172,
+            child: GridView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2, mainAxisSpacing: 16, crossAxisSpacing: 14),
+              itemCount: 6,
+              itemBuilder: (_, __) => Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FadeShimmer.round(size: 56, fadeTheme: FadeTheme.light),
+                  const SizedBox(height: 6),
+                  FadeShimmer(height: 10, width: 40, fadeTheme: FadeTheme.light),
+                ],
+              ),
             ),
           );
         }
         if (snapshot.data!.keys.join().toLowerCase().contains("error")) {
-          return Center(
-            child: Text("Couldn't load contacts",
-                style: TextStyle(color: AppColors.textMuted, fontSize: 13.5)),
+          return SizedBox(
+            height: 172,
+            child: Center(
+              child: Text("Couldn't load contacts",
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 13.5)),
+            ),
           );
         }
         List<dynamic> contacts = snapshot.data!['contacts'] ?? [];
         if (contacts.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.people_outline_rounded,
-                      size: 36, color: AppColors.textMuted),
-                  const SizedBox(height: 12),
-                  Text("No contacts yet",
-                      style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.ink,
-                          fontSize: 15)),
-                  const SizedBox(height: 4),
-                  Text("Add a contact from the Recipients tab to see them here.",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
-                ],
+          return SizedBox(
+            height: 172,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.people_outline_rounded,
+                        size: 36, color: AppColors.textMuted),
+                    const SizedBox(height: 12),
+                    Text("No contacts yet",
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.ink,
+                            fontSize: 15)),
+                    const SizedBox(height: 4),
+                    Text("Add a contact from the Recipients tab to see them here.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
+                  ],
+                ),
               ),
             ),
           );
         }
-        return GridView.builder(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4, mainAxisSpacing: 18, crossAxisSpacing: 8),
-          itemCount: contacts.length,
-          itemBuilder: (_, index) {
-            final contact = contacts[index];
-            final String name = contact['name']?.toString() ?? '';
-            Widget avatarContent;
-            if (contact['avatar'] != null && contact['avatar'].toString().isNotEmpty) {
-              avatarContent = ClipOval(
-                child: Image.network(
-                  "${ApiConstants.baseUrl}/dist/images/Dutch Remit_images/brands_and_businesses/${contact['avatar']}",
-                  height: 56,
-                  width: 56,
-                  fit: BoxFit.cover,
+        // Recent/most-contacted only — capped so the horizontal strip
+        // stays a quick-glance shortcut, not a full contact list (the
+        // full list already lives on the Recipients tab).
+        final recentContacts = contacts.take(12).toList();
+        return SizedBox(
+          height: 172,
+          child: GridView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2, mainAxisSpacing: 18, crossAxisSpacing: 14),
+            itemCount: recentContacts.length,
+            itemBuilder: (_, index) {
+              final contact = recentContacts[index];
+              final String name = contact['name']?.toString() ?? '';
+              Widget avatarContent;
+              if (contact['avatar'] != null && contact['avatar'].toString().isNotEmpty) {
+                avatarContent = ClipOval(
+                  child: Image.network(
+                    "${ApiConstants.baseUrl}/dist/images/Dutch Remit_images/brands_and_businesses/${contact['avatar']}",
+                    height: 56,
+                    width: 56,
+                    fit: BoxFit.cover,
+                  ),
+                );
+              } else {
+                avatarContent = Text(
+                  name.isNotEmpty ? name[0].toUpperCase() : '?',
+                  style: TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.primary),
+                );
+              }
+              return GestureDetector(
+                onTap: () => _makeATransactionWith(contact, 'debit'),
+                child: SizedBox(
+                  width: 68,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircleAvatar(
+                        radius: 28,
+                        backgroundColor: AppColors.surfaceAlt,
+                        child: avatarContent,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        name.split(' ').first,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: AppColors.inkMuted),
+                      ),
+                    ],
+                  ),
                 ),
               );
-            } else {
-              avatarContent = Text(
-                name.isNotEmpty ? name[0].toUpperCase() : '?',
-                style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.primary),
-              );
-            }
-            return GestureDetector(
-              onTap: () => _makeATransactionWith(contact, 'debit'),
-              child: Column(
-                children: [
-                  CircleAvatar(
-                    radius: 28,
-                    backgroundColor: AppColors.surfaceAlt,
-                    child: avatarContent,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    name.split(' ').first,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: AppColors.inkMuted),
-                  ),
-                ],
-              ),
-            );
-          },
+            },
+          ),
         );
       },
     );
   }
 
+
+  /// Formats a transaction's signed amount with its real currency —
+  /// e.g. "+62,650 XAF" or "-100.00 USD" — instead of the previous
+  /// hardcoded "$" prefix regardless of what currency the transaction
+  /// actually was in. Falls back to "$" only for older locally-stored
+  /// transactions saved before the 'currency' field existed on the
+  /// receipt object, so historical entries don't break.
+  String _formatTransactionAmount(Map<String, dynamic> transaction) {
+    final isCredit = transaction['transactionType'] == 'credit';
+    final sign = isCredit ? '+' : '-';
+    final amount = transaction['transactionAmount']?.toString() ?? '0';
+    final currency = transaction['currency']?.toString();
+    if (currency == null) return '$sign\$$amount';
+    return '$sign$amount $currency';
+  }
+
+  Future<void> _loadHistoryNotifications() async {
+    if (widget.userAuthKey == null || widget.userAuthKey!.trim().isEmpty) {
+      setState(() => _isLoadingHistoryNotifications = false);
+      return;
+    }
+    final result =
+        await getData(urlPath: "/api/v1/notifications", authKey: widget.userAuthKey);
+    if (!mounted) return;
+    final list = result['notifications'] is List
+        ? List<Map<String, dynamic>>.from(
+            (result['notifications'] as List).map((n) => Map<String, dynamic>.from(n)))
+        : <Map<String, dynamic>>[];
+    setState(() {
+      _historyNotifications = list;
+      _isLoadingHistoryNotifications = false;
+    });
+  }
 
   Future<void> _loadBankAccounts() async {
     if (widget.userAuthKey == null || widget.userAuthKey!.trim().isEmpty) {
@@ -934,6 +1005,149 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
         .then((value) => getTransactionsFromApi());
   }
 
+  /// The "History" tab: merges real transactions with real
+  /// notifications into one horizontal, 2-row card feed — matching
+  /// the Contacts strip's layout above (scrollDirection: horizontal,
+  /// SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2)).
+  /// A deliberately simpler card than the old vertical transaction
+  /// list (_buildTransactionsTabContent below, kept but no longer
+  /// called): no per-item avatar-image network resolution, since a
+  /// small horizontal card doesn't have room for that detail the way
+  /// a full-width list row did — name/amount/date/type icon only.
+  /// Tapping a transaction card still opens the same real receipt
+  /// dialog as before; tapping a notification card marks it read via
+  /// the same PATCH /api/v1/notifications/:id the Payments tab uses.
+  Widget _buildHistoryTabContent(BuildContext context) {
+    if (error != null) {
+      WidgetsBinding.instance!
+          .addPostFrameCallback((_) => showErrorAlert(context, error!));
+      return _historyShimmerGrid();
+    }
+    if (isLoadingTransactions || _isLoadingHistoryNotifications) {
+      return _historyShimmerGrid();
+    }
+
+    // Merge: every transaction becomes a card, every notification
+    // becomes a card, sorted together by recency so the strip reads
+    // as one real activity feed rather than two separate lists stuck
+    // together.
+    final List<_HistoryItem> items = [
+      ...allTransactions.map((t) => _HistoryItem.fromTransaction(Map<String, dynamic>.from(t))),
+      ..._historyNotifications.map((n) => _HistoryItem.fromNotification(n)),
+    ]..sort((a, b) => b.sortDate.compareTo(a.sortDate));
+
+    if (items.isEmpty) {
+      return SizedBox(
+        height: 172,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(FluentIcons.receipt_24_regular, size: 36, color: AppColors.textMuted),
+                const SizedBox(height: 12),
+                Text("Nothing yet",
+                    style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink, fontSize: 15)),
+                const SizedBox(height: 4),
+                Text("Transfers and updates will show up here.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final capped = items.take(20).toList();
+    return SizedBox(
+      height: 172,
+      child: GridView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 2.6),
+        itemCount: capped.length,
+        itemBuilder: (context, index) => _historyCard(capped[index]),
+      ),
+    );
+  }
+
+  Widget _historyShimmerGrid() {
+    return SizedBox(
+      height: 172,
+      child: GridView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 2.6),
+        itemCount: 6,
+        itemBuilder: (_, __) => ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          child: FadeShimmer(height: 74, width: 160, fadeTheme: FadeTheme.light, radius: 12),
+        ),
+      ),
+    );
+  }
+
+  Widget _historyCard(_HistoryItem item) {
+    return InkWell(
+      onTap: () {
+        if (item.isNotification && item.raw['id'] != null) {
+          patchData(
+            urlPath: "/api/v1/notifications/${item.raw['id']}",
+            data: {"isRead": true},
+            authKey: widget.userAuthKey,
+          );
+        }
+      },
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      child: Container(
+        width: 170,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          boxShadow: AppShadows.card,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: item.iconColor.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Icon(item.icon, size: 16, color: item.iconColor),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                  const SizedBox(height: 2),
+                  Text(item.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildTransactionsTabContent(BuildContext context) {
     if (error != null) {
       WidgetsBinding.instance!
@@ -1104,17 +1318,26 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
                         child: Text(
                           dateFormatter(
                               currentTransactions[index]['dateGroup'],
+                              // .toLocal() — real fix. DateTime.parse()
+                              // on a backend timestamp (Postgres
+                              // timestamptz, which serializes with a
+                              // UTC/offset marker) correctly produces
+                              // a UTC-flagged DateTime; reading
+                              // .hour/.minute off it directly without
+                              // converting to local time shows the
+                              // UTC hour, not the Cameroon-local one —
+                              // exactly the confirmed "an hour ago
+                              // instead of the current time" bug
+                              // (Cameroon is UTC+1).
                               DateTime.parse(currentTransactions[index]
-                                  ['transactionDate'])),
+                                      ['transactionDate'])
+                                  .toLocal()),
                           style: TextStyle(
                               fontSize: 12, color: AppColors.textMuted),
                         ),
                       ),
                       trailing: Text(
-                        currentTransactions[index]['transactionType'] ==
-                                "credit"
-                            ? "+\$${currentTransactions[index]['transactionAmount'].toString()}"
-                            : "-\$${currentTransactions[index]['transactionAmount'].toString()}",
+                        _formatTransactionAmount(currentTransactions[index]),
                         style: TextStyle(
                             fontSize: 14.5,
                             fontWeight: FontWeight.w700,
@@ -1166,7 +1389,7 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
           .sort((a, b) => b['transactionDate'].compareTo(a['transactionDate']));
       for (var transaction in allTransactions) {
         String dateResponse =
-            customGroup(DateTime.parse(transaction['transactionDate']));
+            customGroup(DateTime.parse(transaction['transactionDate']).toLocal());
         transaction['dateGroup'] = dateResponse;
       }
     });
@@ -1205,5 +1428,60 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
 }
 
 enum _ScanOptions { ScanQRCode, MyQRCode, VirtualAccounts, Crypto }
+
+/// A single card in the History strip — either a real transaction or
+/// a real notification, normalized to one shape so both can be
+/// sorted and rendered together.
+class _HistoryItem {
+  final bool isNotification;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color iconColor;
+  final DateTime sortDate;
+  final Map<String, dynamic> raw;
+
+  _HistoryItem({
+    required this.isNotification,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.iconColor,
+    required this.sortDate,
+    required this.raw,
+  });
+
+  factory _HistoryItem.fromTransaction(Map<String, dynamic> txn) {
+    final type = txn['transactionType']?.toString() ?? '';
+    final isCredit = type == 'credit';
+    final name = txn['transactionMemberName']?.toString() ?? 'Transaction';
+    final amount = txn['transactionAmount']?.toString() ?? '';
+    final dateStr = txn['transactionDate']?.toString();
+    final date = dateStr != null ? DateTime.tryParse(dateStr) ?? DateTime.now() : DateTime.now();
+    return _HistoryItem(
+      isNotification: false,
+      title: name,
+      subtitle: isCredit ? "+$amount" : "-$amount",
+      icon: isCredit ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+      iconColor: isCredit ? AppColors.success : AppColors.primary,
+      sortDate: date,
+      raw: txn,
+    );
+  }
+
+  factory _HistoryItem.fromNotification(Map<String, dynamic> n) {
+    final dateStr = n['created_at']?.toString();
+    final date = dateStr != null ? DateTime.tryParse(dateStr) ?? DateTime.now() : DateTime.now();
+    return _HistoryItem(
+      isNotification: true,
+      title: n['title']?.toString() ?? 'Notification',
+      subtitle: n['body']?.toString() ?? '',
+      icon: Icons.notifications_rounded,
+      iconColor: n['is_read'] == true ? AppColors.textMuted : AppColors.warning,
+      sortDate: date,
+      raw: n,
+    );
+  }
+}
 
 

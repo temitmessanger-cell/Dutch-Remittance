@@ -8,6 +8,7 @@ import 'package:dutch_remit/utilities/custom_date_grouping.dart';
 import 'package:dutch_remit/utilities/make_api_request.dart';
 import 'package:dutch_remit/components/shared/transaction_receipt_dialog.dart';
 import 'package:dutch_remit/components/shared/phone_number_field.dart';
+import 'package:dutch_remit/components/shared/money_flow_animation.dart';
 
 /// The real withdrawal flow for Mobile Money / Orange Money: pick the
 /// destination country, enter the recipient phone number, quote and
@@ -242,6 +243,7 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
     await SuccessfulTransactionsStorage().updateSuccessfulTransactions({
       'transactionMemberName': "Withdrawal · ${_nameController.text.trim()} (${_country.countryName})",
       'transactionAmount': widget.amount.toStringAsFixed(2),
+      'currency': _country.currencyCode,
       'transactionType': 'debit',
       'transactionDate': now.toIso8601String(),
       'dateGroup': customGroup(now),
@@ -285,7 +287,22 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
         foregroundColor: AppColors.ink,
       ),
       body: SafeArea(
-        child: _isDone ? _buildSuccess() : _buildForm(),
+        child: _isDone
+            ? _buildSuccess()
+            : (_isSending ? _buildProcessing() : _buildForm()),
+      ),
+    );
+  }
+
+  Widget _buildProcessing() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: MoneyFlowAnimation(
+          fromLabel: '💰',
+          toLabel: _country.flagEmoji,
+          statusText: "Sending to ${_nameController.text.trim().isEmpty ? 'your recipient' : _nameController.text.trim()}…",
+        ),
       ),
     );
   }

@@ -311,6 +311,7 @@ class _CreateVirtualCardScreenState extends State<CreateVirtualCardScreen> {
     await SuccessfulTransactionsStorage().updateSuccessfulTransactions({
       'transactionMemberName': "Virtual card · ${_titleController.text.trim()}",
       'transactionAmount': totalCharged.toStringAsFixed(2),
+      'currency': _currency,
       'transactionType': 'debit',
       'transactionDate': now.toIso8601String(),
       'dateGroup': customGroup(now),

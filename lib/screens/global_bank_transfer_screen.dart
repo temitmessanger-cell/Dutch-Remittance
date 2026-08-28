@@ -14,6 +14,7 @@ import 'package:dutch_remit/utilities/make_api_request.dart';
 import 'package:dutch_remit/utilities/slide_right_route.dart';
 import 'package:dutch_remit/screens/virtual_accounts_screen.dart';
 import 'package:dutch_remit/components/shared/phone_number_field.dart';
+import 'package:dutch_remit/components/shared/money_flow_animation.dart';
 
 /// The real "Global Transfer" flow: send straight to a bank account
 /// anywhere Eversend has a confirmed bank-payout corridor (Europe, US,
@@ -274,6 +275,35 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
     return _selectedBank?['id']?.toString();
   }
 
+  bool _processingOverlayShown = false;
+
+  void _showProcessingOverlay() {
+    if (_processingOverlayShown) return;
+    _processingOverlayShown = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.lg)),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: MoneyFlowAnimation(
+            fromLabel: currencyInfoFor(_sourceCurrency).flagEmoji,
+            toLabel: _destination.flagEmoji,
+            statusText: "Sending your transfer…",
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _hideProcessingOverlay() {
+    if (!_processingOverlayShown) return;
+    _processingOverlayShown = false;
+    Navigator.of(context, rootNavigator: true).pop();
+  }
+
   Future<void> _confirmSend() async {
     if (_isGuest) {
       _showCreateAccountPrompt();
@@ -312,6 +342,11 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
       _errorMessage = null;
     });
 
+    // Real "your money is moving" visualization, same pattern as
+    // every other send/deposit/withdraw screen this pass — previously
+    // this screen only showed a bare button spinner.
+    _showProcessingOverlay();
+
     final transactionRef = 'DR-GT-${DateTime.now().millisecondsSinceEpoch}';
     final nameParts = _recipientNameController.text.trim().split(' ');
     final firstName = nameParts.first;
@@ -348,6 +383,7 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
     if (!mounted) return;
 
     if (result.containsKey('apiRequestError') || result['error'] != null) {
+      _hideProcessingOverlay();
       setState(() => _isSending = false);
 
       // If this destination currency falls back to Klasha (GHS, and
@@ -434,6 +470,7 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
     await SuccessfulTransactionsStorage().updateSuccessfulTransactions({
       'transactionMemberName': "Transfer to ${_recipientNameController.text.trim()} (${_destination.countryName})",
       'transactionAmount': amount.toStringAsFixed(2),
+      'currency': _sourceCurrency,
       'transactionType': 'debit',
       'transactionDate': now.toIso8601String(),
       'dateGroup': customGroup(now),
@@ -455,6 +492,7 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
     await Provider.of<UserLoginStateProvider>(context, listen: false)
         .syncBalanceFromEversend(widget.userAuthKey);
 
+    _hideProcessingOverlay();
     setState(() {
       _isSending = false;
     });

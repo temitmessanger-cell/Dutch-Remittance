@@ -79,7 +79,18 @@ class UserLoginStateProvider with ChangeNotifier {
     _eversendSyncError = null;
     notifyListeners();
 
-    final result = await getData(urlPath: "/api/v1/wallets", authKey: authKey);
+    // Real fix: this used to call GET /api/v1/wallets, which returns
+    // the entire pooled Eversend BUSINESS wallet balance — shared
+    // across every user of the app, not any individual user's own
+    // money. That's the confirmed cause of "I did a real deposit but
+    // my balance doesn't update the way I expect": the app was
+    // showing a shared number the whole time, not this user's own
+    // tracked balance. GET /api/v1/wallets/my-balance is the real,
+    // per-user figure from wallet_ledger (built this session), which
+    // every deposit/send/withdraw already correctly credits/debits
+    // internally — this was the one place that number was never
+    // actually read back out and displayed.
+    final result = await getData(urlPath: "/api/v1/wallets/my-balance", authKey: authKey);
 
     if (result.containsKey('apiRequestError') || result['error'] != null) {
       _isSyncingEversendBalance = false;
@@ -89,21 +100,9 @@ class UserLoginStateProvider with ChangeNotifier {
       return;
     }
 
-    try {
-      final List<dynamic> wallets =
-          (result['data'] ?? result['wallets'] ?? result) as List<dynamic>;
-      final primary = wallets.firstWhere(
-        (w) => (w['currency']?.toString().toUpperCase() ?? '') == 'USD',
-        orElse: () => wallets.isNotEmpty ? wallets.first : null,
-      );
-      if (primary != null) {
-        final balance = primary['balance'] ?? primary['availableBalance'];
-        if (balance != null) {
-          _bankBalance = double.tryParse(balance.toString()) ?? _bankBalance;
-        }
-      }
-    } catch (_) {
-      // Unexpected shape — keep the existing balance rather than crash.
+    final balance = result['balanceUsd'];
+    if (balance != null) {
+      _bankBalance = double.tryParse(balance.toString()) ?? _bankBalance;
     }
 
     _isSyncingEversendBalance = false;

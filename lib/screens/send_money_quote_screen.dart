@@ -200,6 +200,7 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
     final receipt = {
       'transactionMemberName': recipientName,
       'transactionAmount': (amount + fee).toStringAsFixed(2),
+      'currency': _sourceCurrency,
       'transactionType': 'debit',
       'transactionDate': now.toIso8601String(),
       'dateGroup': customGroup(now),

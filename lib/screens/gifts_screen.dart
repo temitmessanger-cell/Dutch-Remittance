@@ -320,6 +320,7 @@ class _GiftsScreenState extends State<GiftsScreen> {
     final receipt = {
       'transactionMemberName': recipientName,
       'transactionAmount': amount.toStringAsFixed(2),
+      'currency': 'USD',
       'transactionType': 'debit',
       'transactionDate': now.toIso8601String(),
       'dateGroup': customGroup(now),
