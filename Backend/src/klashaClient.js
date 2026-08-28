@@ -114,19 +114,53 @@ class KlashaClient {
       );
     }
 
-    const response = await axios.post(
-      `${this.baseUrl}/auth/account/v2/login`,
-      {
-        // Klasha's login field is `username` (NOT `email`), even though
-        // the value is an email address. Confirmed by live test:
-        // { username, password } returns a JWT; { email, password }
-        // returns 401 "empty login details". This was the root cause of
-        // the persistent login failure.
-        username: this.loginEmail,
-        password: this.loginPassword,
-      },
-      { headers: { 'Content-Type': 'application/json' }, httpsAgent: makeProxyAgent(), proxy: false }
-    );
+    // Real fix: this axios.post() was completely unwrapped — no
+    // try/catch at all — which meant a login failure threw the raw,
+    // unformatted axios error straight up through _getToken() ->
+    // _headers() -> get()/post()/postEncrypted(), completely
+    // bypassing _normalize() (which only wraps the SECOND call inside
+    // those methods, never this one). This is the confirmed real
+    // cause of "Request failed with status code 502" with an empty
+    // details: {} reaching the app — that empty object is itself the
+    // signature of an error that never went through _normalize,
+    // which is the only place .details ever gets populated. Every
+    // single Klasha call — including the bank-list call this was
+    // originally reported against — calls _getToken() first, so a
+    // login-call failure looks identical to a failure on whatever the
+    // "real" call was, with no way to tell them apart until now.
+    let response;
+    try {
+      response = await axios.post(
+        `${this.baseUrl}/auth/account/v2/login`,
+        {
+          // Klasha's login field is `username` (NOT `email`), even though
+          // the value is an email address. Confirmed by live test:
+          // { username, password } returns a JWT; { email, password }
+          // returns 401 "empty login details". This was the root cause of
+          // the persistent login failure.
+          username: this.loginEmail,
+          password: this.loginPassword,
+        },
+        { headers: { 'Content-Type': 'application/json' }, httpsAgent: makeProxyAgent(), proxy: false, timeout: 20000 }
+      );
+    } catch (err) {
+      // Log everything real about this failure before normalizing —
+      // this is the login call specifically, so a 502/timeout/network
+      // error here means Klasha's AUTH endpoint is unreachable from
+      // this deployment, which is a genuinely different problem than
+      // the payout/bank-list endpoints being unreachable, and needs a
+      // different fix (this is the one call every single Klasha
+      // request depends on, with no fallback).
+      console.error('[klashaClient/_getToken] LOGIN CALL FAILED', {
+        status: err.response?.status,
+        statusText: err.response?.statusText,
+        responseData: err.response?.data,
+        message: err.message,
+        code: err.code, // e.g. 'ECONNRESET', 'ETIMEDOUT' — real network-level errors have this
+        isNetworkLevelFailure: !err.response,
+      });
+      throw this._normalize(err);
+    }
 
     const token = response.data?.token || response.data?.data?.token;
     if (!token) throw new Error('Klasha did not return a token. Check your credentials.');

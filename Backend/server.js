@@ -62,17 +62,47 @@ app.get('/health', (req, res) => {
 
 // GET /diagnostics/klasha — a single call to confirm, definitively,
 // whether the fixes already made to src/klashaClient.js this session
-// (per-request proxy agent, normalized error messages) are actually
-// live on this deployment, before spending more time debugging a
-// 502 that might just be a stale deploy. If klashaClientVersion
-// below doesn't match what's in the source file, that's the whole
-// answer — redeploy and retest before looking any further.
+// (per-request proxy agent, normalized error messages, wrapped login
+// call) are actually live on this deployment, before spending more
+// time debugging a 502 that might just be a stale deploy. If
+// klashaClientVersion below doesn't match what's in the source file,
+// that's the whole answer — redeploy and retest before looking any
+// further.
+//
+// Tests the LOGIN call and the BANKS call separately and reports
+// both — this distinction matters: _getToken()'s login call used to
+// have no try/catch at all, so a login failure and a banks-call
+// failure were previously indistinguishable (both surfaced as the
+// same raw, unnormalized "Request failed with status code 502" with
+// an empty details: {}, confirmed against a real production
+// failure). Now each step's real, separate outcome is visible.
 app.get('/diagnostics/klasha', async (req, res) => {
   const hasProxyConfigured = !!process.env.OUTBOUND_PROXY_URL;
+  const { klasha } = require('./src/klashaClient');
+  const { KLASHA_PAYOUT_ENDPOINTS } = require('./src/corridors');
+
+  let loginTest = null;
+  try {
+    const start = Date.now();
+    // Force a fresh login regardless of any cached token, so this
+    // genuinely tests the login call every time this endpoint is hit
+    // rather than reporting a stale cached success.
+    klasha._token = null;
+    klasha._tokenExpiresAt = 0;
+    await klasha._getToken();
+    loginTest = { ok: true, durationMs: Date.now() - start };
+  } catch (err) {
+    loginTest = {
+      ok: false,
+      status: err.status,
+      message: err.message,
+      isNormalizedMessage: !/^Request failed with status code/.test(err.message || ''),
+      details: err.details,
+    };
+  }
+
   let liveBanksTest = null;
   try {
-    const { klasha } = require('./src/klashaClient');
-    const { KLASHA_PAYOUT_ENDPOINTS } = require('./src/corridors');
     const start = Date.now();
     const data = await klasha.get(KLASHA_PAYOUT_ENDPOINTS.NGN.banksPath);
     liveBanksTest = { ok: true, durationMs: Date.now() - start, bankCount: Array.isArray(data?.data) ? data.data.length : null };
@@ -89,13 +119,17 @@ app.get('/diagnostics/klasha', async (req, res) => {
       details: err.details,
     };
   }
+
   res.json({
-    klashaClientVersion: 'per-request-proxy-agent-v2',
+    klashaClientVersion: 'wrapped-login-call-v3',
     outboundProxyConfigured: hasProxyConfigured,
     outboundProxyConfiguredNote: hasProxyConfigured
       ? 'OUTBOUND_PROXY_URL is set — requests to Klasha should leave from the proxy\'s static IP.'
       : 'OUTBOUND_PROXY_URL is NOT set — requests to Klasha leave from Railway\'s own outbound IP directly, which changes and is not whitelistable. If Klasha requires IP whitelisting, this is very likely the actual cause of the 502.',
-    liveNgnBanksTest: liveBanksTest,
+    loginTest,
+    liveNgnBanksTest: loginTest?.ok === false
+      ? { ok: false, skipped: true, reason: 'Login itself failed — the banks call was never attempted, since it would fail for the same reason. Fix the login failure above first.' }
+      : liveBanksTest,
   });
 });
 
