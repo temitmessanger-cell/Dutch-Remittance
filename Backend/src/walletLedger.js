@@ -154,6 +154,15 @@ async function debitIfSufficient(userId, amountUsd, reason, referenceTransaction
  * cycle and let a manual reconciliation catch it, rather than
  * guessing a number).
  */
+/**
+ * Converts [amount] in [currency] to USD using Eversend's confirmed
+ * real exchange-quotation endpoint (POST /exchanges/quotation — the
+ * same one crypto.js's withdrawal flow already uses). Returns null if
+ * the conversion genuinely can't be determined right now, so callers
+ * can decide how to handle that (e.g. skip crediting the ledger this
+ * cycle and let a manual reconciliation catch it, rather than
+ * guessing a number).
+ */
 async function convertToUsd(amount, currency) {
   if (currency === 'USD') return Number(amount);
   try {
@@ -162,9 +171,29 @@ async function convertToUsd(amount, currency) {
       amount,
       to: 'USD',
     });
-    const converted = quote?.data?.destinationAmount ?? quote?.destinationAmount;
-    return converted == null ? null : Number(converted);
-  } catch (_) {
+    // Confirmed real response shape (see rates.js's own quotation
+    // route, which already parses this correctly): { code, data: {
+    // expires, token, quotation: { destAmount, ... } }, success } —
+    // the converted amount is quotation.destAmount, nested two levels
+    // under quote.data, NOT quote.data.destinationAmount or
+    // quote.destinationAmount (a field name/nesting that doesn't
+    // exist anywhere in the real response and meant this function
+    // always returned null, silently, for every non-USD deposit —
+    // confirmed as the actual cause of "Couldn't confirm the USD
+    // value of this deposit right now" blocking every XAF deposit).
+    const quotation = quote?.data?.data?.quotation ?? quote?.data?.quotation ?? quote?.quotation;
+    const converted = quotation?.destAmount;
+    if (converted == null) {
+      console.error('[convertToUsd] no destAmount in quotation response', {
+        amount, currency, quoteKeys: quote ? Object.keys(quote) : null, quote: JSON.stringify(quote).slice(0, 500),
+      });
+      return null;
+    }
+    return Number(converted);
+  } catch (err) {
+    console.error('[convertToUsd] exchange quotation call failed', {
+      amount, currency, message: err.message, status: err.status, details: err.details,
+    });
     return null;
   }
 }

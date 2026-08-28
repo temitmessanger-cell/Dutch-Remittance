@@ -107,13 +107,24 @@ router.post('/otp', requireAppUser, async (req, res, next) => {
 
 // POST /api/v1/collections/momo
 // Body: { phone, amount, country, currency, otp?: { pin, pinId },
-//         transactionRef?, customer?: string }
+//         transactionRef?, customer?: string, creditAmount? }
 // `customer` is a plain string (the customer's name) per Eversend's
 // real schema — sending an object here (e.g. {"name": "..."}) is
 // exactly what produced a "customer must be a string" error from
 // Eversend's own validation; passed through untouched below, so the
 // caller (mobile_money_deposit_screen.dart) is responsible for
 // sending the right shape.
+//
+// `amount` is what the customer's phone is actually charged; per
+// product decision this includes Eversend's own provider fee plus
+// Dutch Remit's margin on top (the opposite of Eversend's own default
+// fee model, where the fee is normally deducted from what lands in
+// the wallet instead). `creditAmount`, when present, is the smaller,
+// real deposit figure the user typed in — what should actually land
+// in their tracked wallet_ledger balance once the deposit is
+// confirmed, not the higher charged total. If creditAmount is
+// omitted (an older client, or a direct API caller), this falls back
+// to crediting the full `amount`, preserving the previous behavior.
 // Deposits (Instant / Standard, matching top_up_screen.dart's speed
 // selector) are recorded to Supabase regardless of outcome so the
 // Deposit screen has an immediate, honest receipt even before
@@ -129,6 +140,7 @@ router.post('/momo', requireAppUser, async (req, res, next) => {
       transactionRef,
       customer,
       depositSpeed = 'standard',
+      creditAmount,
     } = req.body || {};
 
     if (!phone || !amount || !country || !currency) {
@@ -137,17 +149,23 @@ router.post('/momo', requireAppUser, async (req, res, next) => {
         .json({ error: 'phone, amount, country and currency are required.' });
     }
 
+    // The real deposit figure the user's wallet should be credited —
+    // defaults to the full charged `amount` if the caller didn't
+    // specify a separate creditAmount (see the comment above).
+    const realCreditAmount = creditAmount != null ? Number(creditAmount) : Number(amount);
+
     // Real deposit-amount limits ($1 min, $5000 max per deposit,
     // $8000 total wallet balance cap) — previously nothing enforced
-    // any of these. amount here is in the deposit's local currency
-    // (e.g. XAF), not USD, so it's converted first; if the
-    // conversion genuinely can't be determined right now, this fails
-    // closed (refuses the deposit) rather than skip the limit check.
-    const amountUsd = await convertToUsd(amount, currency);
-    if (amountUsd == null) {
+    // any of these. Checked against realCreditAmount (what actually
+    // lands in the wallet), not the higher phone-charged `amount` —
+    // the limit is about how much the user's tracked balance grows,
+    // not how much their phone is billed. creditAmount is already in
+    // the same currency as `amount`, so it's converted the same way.
+    const creditAmountUsd = await convertToUsd(realCreditAmount, currency);
+    if (creditAmountUsd == null) {
       return res.status(502).json({ error: "Couldn't confirm the USD value of this deposit right now. Please try again shortly." });
     }
-    const limitCheck = await validateDepositAmountUsd(req.user.id, amountUsd);
+    const limitCheck = await validateDepositAmountUsd(req.user.id, creditAmountUsd);
     if (!limitCheck.ok) {
       return res.status(400).json({ error: limitCheck.error });
     }
@@ -166,14 +184,23 @@ router.post('/momo', requireAppUser, async (req, res, next) => {
       user_id: req.user.id,
       type: 'deposit',
       status: data?.status ?? 'pending',
-      amount,
+      // The real deposit figure the wallet should be credited — NOT
+      // the higher phone-charged `amount` — since this is exactly
+      // what webhooks.js's deposit-credit logic reads once the
+      // transaction is confirmed. Recording the inflated charged
+      // amount here would credit the user's tracked balance with
+      // more than they actually intended to deposit.
+      amount: realCreditAmount,
       currency,
       method: 'momo',
       speed: depositSpeed,
       phone_number: phone,
       provider: 'eversend',
       eversend_reference: data?.transactionRef ?? transactionRef ?? null,
-      raw_response: data,
+      // The real charged amount (phone bill) is preserved here for
+      // audit/support purposes even though it's not what gets
+      // credited to the wallet.
+      raw_response: { ...data, chargedAmount: amount, creditAmount: realCreditAmount },
     });
 
     res.json(data);
