@@ -112,11 +112,18 @@ router.post('/payout', requireAppUser, async (req, res, next) => {
   }
 });
 
-// Virtual-account creation fee: $0.50 for a user's first-ever
-// virtual account, $1.50 for each additional one (e.g. they already
-// have an NGN account and now also need a GHS one).
-const VIRTUAL_ACCOUNT_FEE_FIRST = 0.5;
-const VIRTUAL_ACCOUNT_FEE_ADDITIONAL = 1.5;
+// Virtual-account creation fee: FREE for a user's first-ever virtual
+// account (any currency), then a real per-currency fee for every
+// account after that — $1.00 for NGN, $1.50 for GHS. Previously this
+// was a flat $0.50-for-first/$1.50-for-every-other-one model; changed
+// per explicit product decision to make the very first account free
+// (an acquisition incentive) and price subsequent accounts by their
+// actual currency rather than one flat "additional" rate.
+const VIRTUAL_ACCOUNT_FEE_FIRST = 0;
+const VIRTUAL_ACCOUNT_FEE_BY_CURRENCY = {
+  NGN: 1.0,
+  GHS: 1.5,
+};
 
 // POST /api/v1/klasha/virtual-account
 // Body: { firstName, lastName, currency, email } (individual) or
@@ -155,17 +162,27 @@ router.post('/virtual-account', requireAppUser, async (req, res, next) => {
       .from('virtual_accounts')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', req.user.id);
-    const fee = count && count > 0 ? VIRTUAL_ACCOUNT_FEE_ADDITIONAL : VIRTUAL_ACCOUNT_FEE_FIRST;
+    const isFirstEver = !count || count === 0;
+    const fee = isFirstEver
+      ? VIRTUAL_ACCOUNT_FEE_FIRST
+      : (VIRTUAL_ACCOUNT_FEE_BY_CURRENCY[upperCurrency] ?? VIRTUAL_ACCOUNT_FEE_BY_CURRENCY.NGN);
 
-    // Real balance check for the one-time creation fee — small
-    // ($0.50-$1.50), but still a real debit against the user's
-    // tracked balance that previously had no check against it.
-    const debitResult = await debitIfSufficient(req.user.id, fee, `${upperCurrency} bank account creation fee`);
-    if (!debitResult.ok) {
-      return res.status(402).json({
-        error: `Your balance (\$${debitResult.currentBalance.toFixed(2)}) doesn't cover the \$${fee.toFixed(2)} account creation fee. Add funds and try again.`,
-        currentBalance: debitResult.currentBalance,
-      });
+    // Real balance check for the creation fee — genuinely free (no
+    // debit call at all) for a user's very first virtual account;
+    // debitIfSufficient() requires a strictly positive amount by
+    // design (a real fund-safety guard from earlier work), so a fee
+    // of exactly 0 skips straight past it rather than forcing a fake
+    // near-zero charge just to keep one code path. Every account
+    // after the first gets the real per-currency fee, checked for
+    // real.
+    if (fee > 0) {
+      const debitResult = await debitIfSufficient(req.user.id, fee, `${upperCurrency} bank account creation fee`);
+      if (!debitResult.ok) {
+        return res.status(402).json({
+          error: `Your balance (\$${debitResult.currentBalance.toFixed(2)}) doesn't cover the \$${fee.toFixed(2)} account creation fee. Add funds and try again.`,
+          currentBalance: debitResult.currentBalance,
+        });
+      }
     }
 
     // Send EXACTLY the four fields Klasha's decryptor expects, in a

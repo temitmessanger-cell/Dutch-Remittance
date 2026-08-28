@@ -29,6 +29,15 @@ class _VirtualAccountsScreenState extends State<VirtualAccountsScreen> {
     {'code': 'GHS', 'country': 'Ghana', 'flag': '🇬🇭'},
   ];
 
+  // Matches Backend/src/routes/klasha.js's VIRTUAL_ACCOUNT_FEE_BY_CURRENCY
+  // exactly — kept in sync here purely for the up-front price preview
+  // shown before creating (the backend is still the real source of
+  // truth that actually charges the fee; this is display-only).
+  static const Map<String, double> _feeByCurrency = {
+    'NGN': 1.0,
+    'GHS': 1.5,
+  };
+
   List<Map<String, dynamic>> _accounts = [];
   bool _isLoading = true;
   bool _isCreating = false;
@@ -54,7 +63,14 @@ class _VirtualAccountsScreenState extends State<VirtualAccountsScreen> {
 
   bool get _isGuest => widget.user.isEmpty || widget.user['email'] == null;
 
-  double get _nextFee => _accounts.isEmpty ? 0.5 : 1.5;
+  /// Real fee for the NEXT account the user creates, mirroring
+  /// Backend/src/routes/klasha.js exactly: free for the very first
+  /// account (any currency), then the real per-currency fee for
+  /// every one after that. Previously this was a flat 0.5-then-1.5
+  /// model with no currency awareness at all — now genuinely matches
+  /// what the backend will actually charge for the specific currency
+  /// being created.
+  double _feeFor(String currency) => _accounts.isEmpty ? 0 : (_feeByCurrency[currency] ?? _feeByCurrency['NGN']!);
 
   /// Collects the fields Klasha's virtual-account creation actually
   /// needs, pre-filled from the signed-in user's profile where
@@ -187,6 +203,9 @@ class _VirtualAccountsScreenState extends State<VirtualAccountsScreen> {
     final details = await _collectAccountDetails(currency);
     if (details == null || !mounted) return;
 
+    final fee = _feeFor(currency);
+    final isFree = fee == 0;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -195,7 +214,9 @@ class _VirtualAccountsScreenState extends State<VirtualAccountsScreen> {
         title: Text("Create $currency bank account",
             style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink)),
         content: Text(
-          "A one-time \$${_nextFee.toStringAsFixed(2)} fee applies. This account is created once and reused for every future transfer through this corridor.",
+          isFree
+              ? "Free — this is your first bank account. This account is created once and reused for every future transfer through this corridor."
+              : "A one-time \$${fee.toStringAsFixed(2)} fee applies for this $currency account (your first bank account was free). This account is created once and reused for every future transfer through this corridor.",
           style: TextStyle(color: AppColors.inkMuted, height: 1.4),
         ),
         actionsAlignment: MainAxisAlignment.center,
@@ -211,7 +232,7 @@ class _VirtualAccountsScreenState extends State<VirtualAccountsScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.sm)),
             ),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text("Create — \$${_nextFee.toStringAsFixed(2)}"),
+            child: Text(isFree ? "Create — Free" : "Create — \$${fee.toStringAsFixed(2)}"),
           ),
         ],
       ),
@@ -317,7 +338,12 @@ class _VirtualAccountsScreenState extends State<VirtualAccountsScreen> {
                   children: [
                     Text("${currencyInfo['country']} ($code)",
                         style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
-                    Text(account != null ? "Active" : "Not set up yet",
+                    Text(
+                        account != null
+                            ? "Active"
+                            : (_feeFor(code) == 0
+                                ? "Not set up yet · Free (first account)"
+                                : "Not set up yet · \$${_feeFor(code).toStringAsFixed(2)} to create"),
                         style: TextStyle(
                             fontSize: 12,
                             color: account != null ? AppColors.success : AppColors.textMuted,

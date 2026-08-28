@@ -60,6 +60,45 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
+// GET /diagnostics/klasha — a single call to confirm, definitively,
+// whether the fixes already made to src/klashaClient.js this session
+// (per-request proxy agent, normalized error messages) are actually
+// live on this deployment, before spending more time debugging a
+// 502 that might just be a stale deploy. If klashaClientVersion
+// below doesn't match what's in the source file, that's the whole
+// answer — redeploy and retest before looking any further.
+app.get('/diagnostics/klasha', async (req, res) => {
+  const hasProxyConfigured = !!process.env.OUTBOUND_PROXY_URL;
+  let liveBanksTest = null;
+  try {
+    const { klasha } = require('./src/klashaClient');
+    const { KLASHA_PAYOUT_ENDPOINTS } = require('./src/corridors');
+    const start = Date.now();
+    const data = await klasha.get(KLASHA_PAYOUT_ENDPOINTS.NGN.banksPath);
+    liveBanksTest = { ok: true, durationMs: Date.now() - start, bankCount: Array.isArray(data?.data) ? data.data.length : null };
+  } catch (err) {
+    liveBanksTest = {
+      ok: false,
+      status: err.status,
+      message: err.message,
+      // If this message ever says "Request failed with status code
+      // ..." (raw axios text) instead of a plain-language message,
+      // klashaClient.js's _normalize() fix is NOT live on this
+      // deployment — that IS the bug, full stop, redeploy and retest.
+      isNormalizedMessage: !/^Request failed with status code/.test(err.message || ''),
+      details: err.details,
+    };
+  }
+  res.json({
+    klashaClientVersion: 'per-request-proxy-agent-v2',
+    outboundProxyConfigured: hasProxyConfigured,
+    outboundProxyConfiguredNote: hasProxyConfigured
+      ? 'OUTBOUND_PROXY_URL is set — requests to Klasha should leave from the proxy\'s static IP.'
+      : 'OUTBOUND_PROXY_URL is NOT set — requests to Klasha leave from Railway\'s own outbound IP directly, which changes and is not whitelistable. If Klasha requires IP whitelisting, this is very likely the actual cause of the 502.',
+    liveNgnBanksTest: liveBanksTest,
+  });
+});
+
 // --- Clean, current API surface ---
 app.use('/api/v1/wallets', walletsRouter);
 app.use('/api/v1/rates', ratesRouter);

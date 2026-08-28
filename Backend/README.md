@@ -422,6 +422,61 @@ purpose — never commit it.**
 
 ## Security notes
 
+## Klasha 502s from a hosted deployment (Railway, Render, etc.) — read this first
+
+If Klasha calls work locally but return `502 Bad Gateway` only from a
+hosted deployment, with identical code and no local errors — this is
+almost always **IP whitelisting**, not a code bug. Diagnose it in one
+call:
+
+```
+GET https://<your-backend-url>/diagnostics/klasha
+```
+
+This makes a real, live call to Klasha's NGN bank-list endpoint and
+reports back:
+- Whether `OUTBOUND_PROXY_URL` is configured at all
+- The real error Klasha returned, if it failed
+- Whether that error is a properly normalized message (confirms the
+  deployed code is current) or the raw axios text like `"Request
+  failed with status code 502"` (confirms the deployed code is
+  **stale** — redeploy before debugging further, this exact class of
+  bug has happened more than once this session)
+
+**Why this happens:** most cloud hosts (Railway included) don't give
+you a fixed outbound IP on their standard plans — your server's
+outbound address can change between deploys or even between requests.
+If Klasha's merchant account is configured to only accept requests
+from a specific whitelisted IP (very common for financial APIs, and
+the most likely explanation given "works locally, fails only when
+hosted" with zero code differences), every request from a hosted
+deployment will get rejected by Klasha's own infrastructure — which
+can surface as a 502 from Klasha's own upstream, not from anything in
+this codebase.
+
+**The fix — already built, just needs to be turned on:**
+1. Get a static outbound IP proxy (e.g. [QuotaGuard Static
+   IP](https://www.quotaguard.com/), a Railway/Render add-on, or any
+   HTTP(S) proxy service that gives you one fixed IP).
+2. Set `OUTBOUND_PROXY_URL` on your host to that proxy's connection
+   string (format: `http://user:pass@proxy-host:port`).
+3. Give that exact IP to Klasha to whitelist on your merchant account
+   (ask their support team, or check your merchant dashboard for a
+   whitelisting setting).
+4. Redeploy. Every Klasha call already routes through
+   `makeProxyAgent()` (`src/klashaClient.js`) automatically once this
+   one env var is set — no other code changes needed.
+
+`src/klashaClient.js` builds a **fresh** proxy agent per request
+rather than reusing one for the life of the process — a real, earlier
+bug on this exact deployment: a single long-lived agent's pooled
+socket goes stale after the container's been up a while, and every
+call through it starts 502ing even with correct credentials and a
+correctly-whitelisted IP. If you're still seeing intermittent 502s
+*with* the proxy configured, confirm this fix is actually deployed
+(the `/diagnostics/klasha` endpoint above reports the client version)
+before assuming it's a new bug.
+
 - The credentials in this message were shared in plaintext chat — treat
   them as already-exposed. Once you've confirmed the backend works,
   rotate the Eversend client secret and the Supabase service_role key
