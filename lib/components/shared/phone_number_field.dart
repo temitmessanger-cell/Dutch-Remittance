@@ -137,50 +137,68 @@ class _PhoneNumberFieldState extends State<PhoneNumberField> {
   @override
   Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      // FIX: crossAxisAlignment.stretch on a Row stretches every
+      // child to fill unbounded vertical space in the cross axis —
+      // with no explicit height on the InkWell/TextField below, this
+      // made the whole field expand to fill all remaining space in
+      // whatever scrollable parent it sat in, pushing every field
+      // below it off-screen and making the page scroll seem
+      // infinite. That's exactly the bug reported: missing continue
+      // buttons, missing fields below, and endless scroll on every
+      // screen this widget was added to. Fixed: a normal (default)
+      // crossAxisAlignment, with each child given a real, bounded
+      // height via SizedBox instead of letting the Row's stretch
+      // behavior improvise one.
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        InkWell(
-          onTap: _pickCountry,
-          borderRadius: BorderRadius.circular(AppRadii.md),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceAlt,
-              borderRadius: BorderRadius.circular(AppRadii.md),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(_selectedDialCode.flagEmoji, style: const TextStyle(fontSize: 18)),
-                const SizedBox(width: 6),
-                Text(_selectedDialCode.dialCode,
-                    style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink, fontSize: 14)),
-                const SizedBox(width: 2),
-                Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textMuted, size: 18),
-              ],
+        SizedBox(
+          height: 52,
+          child: InkWell(
+            onTap: _pickCountry,
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceAlt,
+                borderRadius: BorderRadius.circular(AppRadii.md),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_selectedDialCode.flagEmoji, style: const TextStyle(fontSize: 18)),
+                  const SizedBox(width: 6),
+                  Text(_selectedDialCode.dialCode,
+                      style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink, fontSize: 14)),
+                  const SizedBox(width: 2),
+                  Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textMuted, size: 18),
+                ],
+              ),
             ),
           ),
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: TextField(
-            controller: _controller,
-            keyboardType: TextInputType.phone,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: AppColors.surfaceAlt,
-              hintText: widget.hintText ?? "Phone number",
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-              enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: AppColors.border), borderRadius: BorderRadius.circular(AppRadii.md)),
-              focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: AppColors.primary, width: 1.6),
-                  borderRadius: BorderRadius.circular(AppRadii.md)),
-              border: OutlineInputBorder(
-                  borderSide: BorderSide(color: AppColors.border), borderRadius: BorderRadius.circular(AppRadii.md)),
+          child: SizedBox(
+            height: 52,
+            child: TextField(
+              controller: _controller,
+              keyboardType: TextInputType.phone,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: AppColors.surfaceAlt,
+                hintText: widget.hintText ?? "Phone number",
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: AppColors.border), borderRadius: BorderRadius.circular(AppRadii.md)),
+                focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: AppColors.primary, width: 1.6),
+                    borderRadius: BorderRadius.circular(AppRadii.md)),
+                border: OutlineInputBorder(
+                    borderSide: BorderSide(color: AppColors.border), borderRadius: BorderRadius.circular(AppRadii.md)),
+              ),
             ),
           ),
         ),

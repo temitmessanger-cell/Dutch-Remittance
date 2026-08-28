@@ -215,9 +215,13 @@ class KlashaClient {
 
   _normalize(err) {
     const status = err.response?.status;
+    // Same object-message unwrapping as eversendClient.js — see that
+    // file's comment for the confirmed real example that produced
+    // the literal string "[object Object]" before this fix.
+    const rawMessage = err.response?.data?.message ?? err.response?.data?.error;
     const message =
-      err.response?.data?.message ||
-      err.response?.data?.error ||
+      (typeof rawMessage === 'string' && rawMessage) ||
+      (rawMessage && typeof rawMessage === 'object' && typeof rawMessage.message === 'string' && rawMessage.message) ||
       (err.response ? 'Something went wrong on our end. Please try again.' : 'Could not reach our payment partner right now. Please try again shortly.');
     const normalized = new Error(message);
     normalized.status = status || 502;

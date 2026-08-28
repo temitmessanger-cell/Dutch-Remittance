@@ -35,15 +35,20 @@ router.get('/fees', requireAppUser, async (req, res, next) => {
 // Sends via WhatsApp, not SMS — confirmed directly with the Eversend
 // team (per product owner, 2026-08): SMS delivery for this OTP
 // doesn't reliably work, and Eversend's own guidance is to set
-// `type: "whatsapp"` on this request instead, which delivers the
-// code to the user's WhatsApp. The app-facing copy in
-// mobile_money_deposit_screen.dart tells the user to check WhatsApp
-// accordingly, not their SMS inbox.
+// `code_type: "whatsapp"` on this request instead, which delivers
+// the code to the user's WhatsApp. This was previously sent as
+// `type: "whatsapp"` — the wrong field name — which is the confirmed
+// cause of a real 500 from Eversend's own API (their generic
+// "An error has occurred" failure, not a clean validation error),
+// reproduced against a real account and traced back to Eversend
+// support's exact written guidance: the field is code_type, not
+// type. The app-facing copy in mobile_money_deposit_screen.dart
+// tells the user to check WhatsApp accordingly, not their SMS inbox.
 router.post('/otp', requireAppUser, async (req, res, next) => {
   try {
     const { phone } = req.body || {};
     if (!phone) return res.status(400).json({ error: 'phone is required.' });
-    const data = await eversend.post('/collections/otp', { phone, type: 'whatsapp' });
+    const data = await eversend.post('/collections/otp', { phone, code_type: 'whatsapp' });
     res.json(data);
   } catch (err) {
     next(err);

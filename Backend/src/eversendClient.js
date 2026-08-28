@@ -124,9 +124,18 @@ class EversendClient {
       // code in a plain-language app is confusing, not helpful, and
       // this fallback should rarely even trigger since Eversend's own
       // error responses almost always populate data.message/data.error.
+      //
+      // Eversend's own error responses sometimes nest the real text
+      // one level deeper — e.g. { message: { message: "phone number
+      // must be a valid international format" } } — confirmed against
+      // a real request. `new Error(someObject)` silently stringifies
+      // to the literal text "[object Object]", which is exactly what
+      // reached the app before this fix; unwrap one level of nesting
+      // if the field is itself an object rather than a string.
+      const rawMessage = err.response?.data?.message ?? err.response?.data?.error;
       const message =
-        err.response?.data?.message ||
-        err.response?.data?.error ||
+        (typeof rawMessage === 'string' && rawMessage) ||
+        (rawMessage && typeof rawMessage === 'object' && typeof rawMessage.message === 'string' && rawMessage.message) ||
         (err.response ? 'Something went wrong on our end. Please try again.' : 'Could not reach Eversend right now. Please try again shortly.');
       const normalized = new Error(message);
       normalized.status = status || 502;

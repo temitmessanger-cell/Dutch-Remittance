@@ -734,17 +734,27 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                   style: TextStyle(fontSize: 13.5, color: AppColors.textMuted, fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Expanded(
                     child: _isQuoting
                         ? SizedBox(
                             width: 24, height: 24,
                             child: CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.primary))
-                        : Text(
-                            _destination.hasLiveRate && _convertedAmount != null
-                                ? _formatWhole(_convertedAmount!)
-                                : 'Unavailable',
-                            style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: AppColors.ink)),
+                        : (_destination.hasLiveRate && _convertedAmount != null)
+                            ? Text(_formatWhole(_convertedAmount!),
+                                style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: AppColors.ink))
+                            // Fixed: this used to render "Unavailable"
+                            // at the same giant 30px/w800 style as a
+                            // real amount, which looked like a broken
+                            // number rather than a calm status message
+                            // — exactly what the smaller "Rate
+                            // unavailable — shown at delivery" banner
+                            // below is supposed to communicate on its
+                            // own. Now sized like normal body text so
+                            // it doesn't compete with a real amount.
+                            : Text('Unavailable',
+                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.textMuted)),
                   ),
                   InkWell(
                     onTap: _pickDestination,
@@ -1065,11 +1075,15 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                     ? SizedBox(
                         width: 20, height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.primary))
-                    : Text(
-                        _destination.hasLiveRate && _convertedAmount != null
-                            ? _formatWhole(_convertedAmount!)
-                            : "Unavailable",
-                        style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.ink)),
+                    : (_destination.hasLiveRate && _convertedAmount != null)
+                        ? Text(_formatWhole(_convertedAmount!),
+                            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.ink))
+                        // Same fix as the diaspora layout above — a
+                        // muted, normal-sized message instead of a
+                        // giant bold "Unavailable" masquerading as a
+                        // broken amount.
+                        : Text("Unavailable",
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textMuted)),
               ),
             ),
             const SizedBox(width: 8),
