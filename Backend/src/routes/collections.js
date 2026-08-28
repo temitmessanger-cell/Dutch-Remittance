@@ -44,14 +44,64 @@ router.get('/fees', requireAppUser, async (req, res, next) => {
 // support's exact written guidance: the field is code_type, not
 // type. The app-facing copy in mobile_money_deposit_screen.dart
 // tells the user to check WhatsApp accordingly, not their SMS inbox.
+//
+// OTP_ROUTE_VERSION exists purely so a deployed instance can be
+// checked without guessing — GET /api/v1/collections/otp/version
+// below returns this string. If it doesn't say "code_type-fix-v2",
+// the fix in this file has not actually reached the running
+// deployment yet, full stop — no other explanation is possible.
+const OTP_ROUTE_VERSION = 'code_type-fix-v2';
+
+router.get('/otp/version', (req, res) => {
+  res.json({ version: OTP_ROUTE_VERSION });
+});
+
 router.post('/otp', requireAppUser, async (req, res, next) => {
+  const requestId = `otp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   try {
     const { phone } = req.body || {};
-    if (!phone) return res.status(400).json({ error: 'phone is required.' });
-    const data = await eversend.post('/collections/otp', { phone, code_type: 'whatsapp' });
-    res.json(data);
+    console.log(`[${requestId}] POST /collections/otp version=${OTP_ROUTE_VERSION} phone=${phone} userId=${req.user?.id}`);
+
+    if (!phone) return res.status(400).json({ error: 'phone is required.', requestId });
+
+    let data;
+    try {
+      data = await eversend.post('/collections/otp', { phone, code_type: 'whatsapp' });
+    } catch (eversendErr) {
+      // Log absolutely everything Eversend actually sent back, in
+      // full — status, headers, raw body — server-side, and return a
+      // client-visible error that embeds the real status/message
+      // directly rather than the generic wrapper that was hiding it
+      // before. This is the "bulletproof" version: the response body
+      // itself will now say exactly what Eversend returned, with no
+      // ambiguity about whether an old cached response is being seen.
+      console.error(`[${requestId}] EVERSEND OTP CALL FAILED`, {
+        message: eversendErr.message,
+        status: eversendErr.status,
+        details: eversendErr.details,
+        stack: eversendErr.stack,
+      });
+      return res.status(eversendErr.status || 502).json({
+        error: `Eversend OTP request failed: ${eversendErr.message}`,
+        eversendStatus: eversendErr.status,
+        eversendDetails: eversendErr.details,
+        requestId,
+        routeVersion: OTP_ROUTE_VERSION,
+      });
+    }
+
+    console.log(`[${requestId}] OTP request succeeded`, JSON.stringify(data));
+    res.json({ ...data, requestId, routeVersion: OTP_ROUTE_VERSION });
   } catch (err) {
-    next(err);
+    console.error(`[${requestId}] UNEXPECTED ERROR in /collections/otp`, {
+      message: err.message,
+      stack: err.stack,
+    });
+    res.status(500).json({
+      error: `Unexpected server error: ${err.message}`,
+      requestId,
+      routeVersion: OTP_ROUTE_VERSION,
+    });
   }
 });
 
