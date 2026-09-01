@@ -90,6 +90,23 @@ async function getQuotation({ sourceWallet, amount, amountType = 'SOURCE', type 
   const provider = resolveProvider(destinationCurrency);
 
   if (provider === 'eversend') {
+    // CORRECTED: an earlier version of this function added a
+    // USD-bridging step here (converting any non-USD sourceWallet to
+    // USD before quoting), based on a wrong theory about why a
+    // specific request returned a 400. A real, live Eversend API test
+    // record (POST /v1/payouts/quotation, sourceWallet: "XAF",
+    // destinationCurrency: "NGN", type: "bank") came back a
+    // confirmed 200 with a correct rate (1 XAF = 2.2244648829431 NGN)
+    // — direct non-USD sourceWallet quoting genuinely works. The
+    // actual 400 that prompted the wrong fix was for type: "momo" to
+    // Nigeria specifically — Nigeria only supports bank payouts (see
+    // corridors.js's EVERSEND_PAYOUT_COUNTRIES, NG: methods: ['bank']),
+    // which is unrelated to source currency and is now handled by
+    // GET /rates/corridor-methods gating the frontend's method
+    // picker instead. Reverted the bridging step: sourceWallet is
+    // passed straight through as given, giving the real, direct
+    // Eversend rate rather than adding an unnecessary extra
+    // conversion hop (and its extra slippage) that was never needed.
     const data = await eversend.post('/payouts/quotation', {
       sourceWallet, amount, amountType, type, destinationCountry, destinationCurrency,
     });

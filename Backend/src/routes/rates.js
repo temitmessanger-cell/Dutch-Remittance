@@ -3,8 +3,34 @@ const { eversend } = require('../eversendClient');
 const { getQuotation } = require('../paymentRouter');
 const { supabaseAdmin } = require('../supabaseClient');
 const { optionalAppUser, requireAppUser } = require('../middleware/requireAppUser');
+const { EVERSEND_PAYOUT_COUNTRIES, AFRICAN_PAYOUT_COUNTRIES } = require('../corridors');
 
 const router = express.Router();
+
+// GET /api/v1/rates/corridor-methods/:countryCode — the real, actually
+// supported payout methods for a destination country, sourced from
+// the same corridors.js data every other real payout decision in this
+// backend already trusts. Previously the frontend never checked this
+// at all — every send screen showed "Mobile money" as a selectable
+// method for every country regardless of whether Eversend actually
+// supports it there, which is the confirmed real cause of "Mobile
+// Money payments to Nigeria are not supported at the moment" (Nigeria
+// has always only supported 'bank' in this exact corridors.js file —
+// the UI just never consulted it). This is the same real mechanism
+// global_bank_transfer_screen.dart's bank-picker gating already uses
+// successfully — this endpoint exposes it for every other send screen
+// to use the same way, rather than duplicating a country-method map
+// in Dart that would drift out of sync with the real backend data.
+router.get('/corridor-methods/:countryCode', async (req, res) => {
+  const code = (req.params.countryCode || '').toUpperCase();
+  const entry =
+    EVERSEND_PAYOUT_COUNTRIES.find((c) => c.code === code) ||
+    AFRICAN_PAYOUT_COUNTRIES.find((c) => c.code === code);
+  if (!entry) {
+    return res.json({ countryCode: code, methods: [], note: 'Not a confirmed payout corridor.' });
+  }
+  res.json({ countryCode: code, currency: entry.currency, methods: entry.methods });
+});
 
 // A wallet-to-wallet exchange doesn't carry an explicit "fee" field
 // from the provider the way a payout quotation does — the margin on
@@ -156,6 +182,12 @@ router.post('/payout-quotation', async (req, res, next) => {
       });
     }
 
+    // CORRECTED: reverted the USD-bridging step added here earlier —
+    // see getQuotation()'s comment in paymentRouter.js for the full
+    // explanation. A real Eversend API test confirmed direct non-USD
+    // sourceWallet quoting genuinely works (XAF -> NGN bank returned
+    // a correct 200 with the real rate); the bridging step was an
+    // unnecessary extra conversion hop based on a wrong theory.
     const data = await eversend.post('/payouts/quotation', {
       sourceWallet,
       amount,

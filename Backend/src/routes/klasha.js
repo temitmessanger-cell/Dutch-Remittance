@@ -112,17 +112,26 @@ router.post('/payout', requireAppUser, async (req, res, next) => {
   }
 });
 
-// Virtual-account creation fee: FREE for a user's first-ever virtual
-// account (any currency), then a real per-currency fee for every
-// account after that — $1.00 for NGN, $1.50 for GHS. Previously this
-// was a flat $0.50-for-first/$1.50-for-every-other-one model; changed
-// per explicit product decision to make the very first account free
-// (an acquisition incentive) and price subsequent accounts by their
-// actual currency rather than one flat "additional" rate.
-const VIRTUAL_ACCOUNT_FEE_FIRST = 0;
+// Virtual-account creation fee: $0.50 (one-time, first-ever account),
+// then a real per-currency fee for every account after that — $1.50
+// for NGN, $2.00 for GHS. Per explicit product decision (reversing
+// the earlier "free first account" model): the first account carries
+// the original $0.50 one-time setup fee, and additional accounts are
+// priced by currency.
+const VIRTUAL_ACCOUNT_FEE_FIRST = 0.5;
 const VIRTUAL_ACCOUNT_FEE_BY_CURRENCY = {
-  NGN: 1.0,
-  GHS: 1.5,
+  NGN: 1.5,
+  GHS: 2.0,
+};
+
+// Monthly maintenance fee per currency — $0.50/month for NGN, $0.80/
+// month for GHS, auto-debited from the user's tracked wallet_ledger
+// balance. If the balance can't cover it, the account is paused
+// (status: 'paused' — see the cron/maintenance job below) rather than
+// letting the debit silently fail or go negative.
+const VIRTUAL_ACCOUNT_MONTHLY_FEE_BY_CURRENCY = {
+  NGN: 0.5,
+  GHS: 0.8,
 };
 
 // POST /api/v1/klasha/virtual-account
@@ -166,15 +175,11 @@ router.post('/virtual-account', requireAppUser, async (req, res, next) => {
     const fee = isFirstEver
       ? VIRTUAL_ACCOUNT_FEE_FIRST
       : (VIRTUAL_ACCOUNT_FEE_BY_CURRENCY[upperCurrency] ?? VIRTUAL_ACCOUNT_FEE_BY_CURRENCY.NGN);
-
-    // Real balance check for the creation fee — genuinely free (no
-    // debit call at all) for a user's very first virtual account;
-    // debitIfSufficient() requires a strictly positive amount by
-    // design (a real fund-safety guard from earlier work), so a fee
-    // of exactly 0 skips straight past it rather than forcing a fake
-    // near-zero charge just to keep one code path. Every account
-    // after the first gets the real per-currency fee, checked for
-    // real.
+    // Real balance check for the creation fee — $0.50 for the first
+    // account, $1.50/$2.00 for NGN/GHS after that. The `if (fee > 0)`
+    // guard is defensive (debitIfSufficient() requires a strictly
+    // positive amount by design) but every real fee here is always
+    // positive under the current pricing, so this always runs.
     if (fee > 0) {
       const debitResult = await debitIfSufficient(req.user.id, fee, `${upperCurrency} bank account creation fee`);
       if (!debitResult.ok) {

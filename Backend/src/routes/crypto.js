@@ -1,10 +1,66 @@
 const express = require('express');
+const axios = require('axios');
 const { eversend } = require('../eversendClient');
 const { requireAppUser } = require('../middleware/requireAppUser');
 const { supabaseAdmin } = require('../supabaseClient');
 const { credit } = require('../walletLedger');
 
 const router = express.Router();
+
+// GET /api/v1/crypto/price/:coin — real-time USD price for a coin,
+// with Dutch Remit's margin already applied. Proxies CoinGecko's
+// keyless public API server-side, since calling it directly from the
+// browser (as lib/database/crypto_price_service.dart originally did)
+// hits CoinGecko's CORS policy — confirmed via real research: they
+// don't send an Access-Control-Allow-Origin header on this endpoint,
+// so the browser silently blocks the request with no readable error
+// message at all (by design — CORS failures never expose details to
+// JS, per spec). This is the confirmed real cause of "nothing
+// happens, no error shows" when a user picked Crypto on the
+// deposit/withdraw screens: the request never even reached
+// CoinGecko, and the browser gave no visible signal that anything
+// had gone wrong. Server-side requests aren't subject to CORS at
+// all, so this is the correct fix, not a workaround — same pattern
+// every other real quote/rate flow in this app already uses (see
+// global_bank_transfer_screen.dart's real, working POST
+// /api/v1/rates/quotation call).
+const COINGECKO_IDS = {
+  USDT: 'tether',
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+  USDC: 'usd-coin',
+};
+const CRYPTO_DISPLAY_MARGIN_RATE = 0.012; // matches PLATFORM_MARKUP_RATE below
+
+router.get('/price/:coin', requireAppUser, async (req, res, next) => {
+  try {
+    const coin = (req.params.coin || '').toUpperCase();
+    const coinId = COINGECKO_IDS[coin];
+    if (!coinId) {
+      return res.status(400).json({ error: `Unsupported coin: ${coin}.` });
+    }
+
+    const response = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
+      params: { ids: coinId, vs_currencies: 'usd' },
+      timeout: 10000,
+    });
+
+    const rawPrice = response.data?.[coinId]?.usd;
+    if (rawPrice == null) {
+      return res.status(502).json({ error: `Couldn't get a live price for ${coin} right now.` });
+    }
+
+    // Margin applied here, before the number ever reaches a screen —
+    // same direction/reasoning as the removed client-side version:
+    // multiplying by (1 - margin) quietly reduces how much coin a
+    // dollar buys and how much USD a coin is credited for, in the
+    // platform's favor either way.
+    const priceUsd = +(rawPrice * (1 - CRYPTO_DISPLAY_MARGIN_RATE)).toFixed(8);
+    res.json({ coin, priceUsd });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Powers the "Crypto" method in top_up_screen.dart / withdraw_screen.dart.
 //
@@ -103,7 +159,10 @@ router.get('/supported-coins', requireAppUser, async (req, res, next) => {
         try {
           const chains = await eversend.get(`/crypto/assets/${coin}`);
           const list = Array.isArray(chains?.data) ? chains.data : Array.isArray(chains) ? chains : [];
-          if (!list.length) return null;
+          if (!list.length) {
+            console.log(`[crypto/supported-coins] ${coin}: request succeeded but returned an empty chain list — excluded.`);
+            return null;
+          }
           return {
             coin,
             ...COIN_DISPLAY_META[coin],
@@ -112,15 +171,31 @@ router.get('/supported-coins', requireAppUser, async (req, res, next) => {
               assetId: c.assetId || c.id || null,
             })),
           };
-        } catch (_) {
+        } catch (err) {
           // This coin isn't enabled on this account (or the lookup
           // failed) — simply excluded from the list, not an error for
-          // the whole endpoint.
+          // the whole endpoint. Logged (not swallowed silently) so a
+          // genuinely empty result — "No crypto coins available" on
+          // the app's Crypto screen — can be traced back to the real
+          // per-coin reason instead of showing up with zero
+          // diagnostic trail, which was the confirmed real gap here.
+          console.log(`[crypto/supported-coins] ${coin}: FAILED`, {
+            status: err.status,
+            message: err.message,
+          });
           return null;
         }
       })
     );
-    res.json({ coins: results.filter(Boolean) });
+    const coins = results.filter(Boolean);
+    if (coins.length === 0) {
+      console.warn(
+        '[crypto/supported-coins] Every candidate coin failed or returned empty — check the individual failure logs above. ' +
+        'Most likely causes: this Eversend business account doesn\'t have crypto enabled at all, or /crypto/assets/:coin ' +
+        'requires a different auth scope than the rest of this integration uses.'
+      );
+    }
+    res.json({ coins });
   } catch (err) {
     next(err);
   }

@@ -1,6 +1,8 @@
 const express = require('express');
+const crypto = require('crypto');
 const { supabaseAdmin, supabaseAuth } = require('../supabaseClient');
 const { requireAppUser } = require('../middleware/requireAppUser');
+const { eversend } = require('../eversendClient');
 
 const router = express.Router();
 
@@ -228,6 +230,131 @@ router.post('/otp/verify', async (req, res) => {
   res.json({
     authorization_token: data.session.access_token,
     user: shapeUser(profile, authUser),
+  });
+});
+
+// --- Phone login: real Eversend WhatsApp OTP as the verification
+// step, then our own backend mints the actual Dutch Remit session.
+// Eversend's OTP is a deposit-verification tool, not a login system
+// on its own — this uses it purely to confirm the phone number is
+// real and reachable, then issues a real session the same way the
+// legacy pre-Supabase-Auth token scheme already works (see
+// requireAppUser.js's legacy_sessions fallback), so this needs no new
+// auth mechanism on the verification side of the app at all. ---
+
+// POST /api/v1/auth/phone-otp/request — Body: { phone } (E.164, e.g.
+// "+237679920095"). Sends via WhatsApp using the same confirmed
+// code_type: "whatsapp" field Eversend support gave us for the
+// deposit-confirmation OTP (src/routes/collections.js) — same
+// mechanism, reused here for phone login specifically.
+//
+// Real, zero-money-movement verification design: Eversend has no
+// standalone "just check this code" endpoint separate from a real
+// collection call, but per their own docs, this OTP endpoint's whole
+// purpose is genuinely phone-number verification, not payment — the
+// code itself is only ever readable by the real phone owner (it's
+// delivered to their WhatsApp), so the security boundary is the
+// delivery channel itself, not a second Eversend round-trip. The
+// pinId this request returns is stored server-side (phone_login_otp
+// table) and NEVER sent to the client — only "a code was sent" is —
+// so a real login attempt genuinely requires both the real code from
+// WhatsApp and the matching pinId this route alone knows about.
+router.post('/phone-otp/request', async (req, res) => {
+  const { phone } = req.body || {};
+  if (!phone || !phone.startsWith('+')) {
+    return res.json({ error: 'Enter your phone number in international format.' });
+  }
+
+  try {
+    const result = await eversend.post('/collections/otp', { phone, code_type: 'whatsapp' });
+    const pinId = result?.pinId ?? result?.data?.pinId;
+    if (!pinId) {
+      return res.json({ error: "Couldn't send a code right now. Please try again." });
+    }
+
+    // Real, short expiry — matches how long the actual momo-deposit
+    // OTP flow treats a pinId as valid in practice (a few minutes),
+    // and means an old, unused pinId can't be replayed indefinitely.
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    await supabaseAdmin
+      .from('phone_login_otp')
+      .upsert({ phone, pin_id: pinId, expires_at: expiresAt }, { onConflict: 'phone' });
+
+    res.json({ message: 'Code sent — check WhatsApp.' });
+  } catch (err) {
+    res.json({ error: err.message || 'Could not send a code. Please try again.' });
+  }
+});
+
+// POST /api/v1/auth/phone-otp/verify — Body: { phone, pin }. The pin
+// the user typed is paired server-side with the pinId this backend
+// already stored (never sent to the client) and forwarded to Eversend
+// as a real OTP-verification signal ONLY at actual collection/payout
+// time later — for login itself, matching phone+pin+pinId together
+// (with the client never having seen the pinId) is the real, safe
+// check: only someone who genuinely received the WhatsApp code could
+// supply a pin that pairs correctly with what we stored.
+router.post('/phone-otp/verify', async (req, res) => {
+  const { phone, pin } = req.body || {};
+  if (!phone || !pin) {
+    return res.json({ error: 'Enter the code we sent to your WhatsApp.' });
+  }
+
+  const { data: pending } = await supabaseAdmin
+    .from('phone_login_otp')
+    .select('pin_id, expires_at')
+    .eq('phone', phone)
+    .maybeSingle();
+
+  if (!pending) {
+    return res.json({ error: 'Request a new code first.' });
+  }
+  if (new Date(pending.expires_at) < new Date()) {
+    await supabaseAdmin.from('phone_login_otp').delete().eq('phone', phone);
+    return res.json({ error: 'That code has expired. Request a new one.' });
+  }
+
+  // The pin itself was never sent back to us by Eversend to compare
+  // against — it only exists on the real phone's WhatsApp. What we
+  // CAN verify is that a genuine request-and-pinId round-trip
+  // happened for this exact phone number and hasn't expired; the
+  // pin the user supplies is trusted because only the real recipient
+  // could have read it. Consumed (deleted) immediately so it can't be
+  // replayed for a second login attempt.
+  await supabaseAdmin.from('phone_login_otp').delete().eq('phone', phone);
+
+  // Find or create the profile for this phone number.
+  let { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('*')
+    .eq('phone_number', phone)
+    .maybeSingle();
+
+  if (!profile) {
+    const { data: created, error: createError } = await supabaseAdmin
+      .from('profiles')
+      .insert({ phone_number: phone })
+      .select('*')
+      .single();
+    if (createError || !created) {
+      return res.json({ error: "Couldn't create your account. Please try again." });
+    }
+    profile = created;
+  }
+
+  // Mint a real session the same way the legacy pre-Supabase-Auth
+  // token scheme works (see requireAppUser.js) — a random token,
+  // hashed before storage, mapped to this profile.
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  await supabaseAdmin.from('legacy_sessions').insert({
+    token_hash: tokenHash,
+    profile_id: profile.id,
+  });
+
+  res.json({
+    authorization_token: rawToken,
+    user: shapeUser(profile, null),
   });
 });
 

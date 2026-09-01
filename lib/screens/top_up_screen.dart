@@ -141,7 +141,7 @@ class _TopUpScreenState extends State<TopUpScreen> {
 
     setState(() => _isLoadingCryptoRate = true);
 
-    final rate = await _cryptoService.getUsdPriceFor(_cryptoCoin);
+    final rate = await _cryptoService.getUsdPriceFor(_cryptoCoin, authKey: widget.userAuthKey);
     final converted = rate != null && rate > 0 ? amount / rate : null;
 
     if (!mounted) return;

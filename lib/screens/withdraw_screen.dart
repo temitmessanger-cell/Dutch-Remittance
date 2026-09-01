@@ -104,7 +104,7 @@ class _WithdrawScreenState extends State<WithdrawScreen> {
     }
 
     setState(() => _isLoadingCryptoRate = true);
-    final rate = await _cryptoService.getUsdPriceFor(_cryptoCoin);
+    final rate = await _cryptoService.getUsdPriceFor(_cryptoCoin, authKey: widget.userAuthKey);
     // Withdraw's amount field is denominated in the coin itself (see
     // _amountCurrencyLabel), so the USD equivalent is amount * rate —
     // the inverse of Deposit's "USD in, coin out" direction.

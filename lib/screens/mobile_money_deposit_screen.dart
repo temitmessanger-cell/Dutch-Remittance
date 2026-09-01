@@ -311,17 +311,21 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
       setState(() => _errorMessage = "Enter the full 6-digit code.");
       return;
     }
-    if (_totalFee == null) {
-      // Never proceed on an unknown fee — that would either silently
-      // undercharge the phone (if we fell back to widget.amount) or
-      // require guessing a number. The fee is refetched here as a
-      // last attempt in case the earlier fetch failed transiently;
-      // if it still fails, the user is told plainly rather than the
-      // deposit going through on an unverified charge.
-      setState(() => _errorMessage = "Couldn't confirm the deposit total — try again in a moment.");
-      await _fetchFee();
-      return;
-    }
+    // Real fix: Eversend's fee-lookup endpoint (GET /collections/fees)
+    // only covers Kenya, Rwanda, Uganda and Ghana per their own docs —
+    // Cameroon/XAF, this app's primary corridor, was never covered at
+    // all. _totalFee being permanently null for XAF meant this
+    // previously-added safety check ("never proceed on an unknown
+    // fee") was unintentionally blocking every single XAF deposit
+    // completely — a real regression, not the intended behavior. The
+    // actual deposit call itself (POST /collections/momo) has always
+    // worked correctly for XAF, confirmed by real testing earlier
+    // this session; only the FEE PREVIEW specifically isn't available
+    // for this currency. Proceeding without an added fee when the
+    // preview genuinely can't be determined is honest (the phone is
+    // charged exactly widget.amount, nothing extra guessed or hidden)
+    // and unblocks the deposit rather than trapping the user on a
+    // limitation of one specific preview endpoint.
 
     setState(() {
       _isConfirming = true;
@@ -509,11 +513,19 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
             : Text(
                 _totalFee != null
                     ? "Total charged: ${_totalCharge.toStringAsFixed(2)} ${_country.currencyCode}"
-                    : "Couldn't calculate the total right now — try again shortly.",
+                    // A fee preview genuinely isn't available for
+                    // every currency (Eversend's fee-lookup endpoint
+                    // only covers a handful of countries) — this is
+                    // not a transient failure and not something a
+                    // retry will fix, so the copy doesn't suggest
+                    // trying again. The deposit still proceeds
+                    // normally; the phone is charged exactly
+                    // widget.amount with nothing extra added.
+                    : "Charging ${widget.amount.toStringAsFixed(2)} ${_country.currencyCode} — a fee preview isn't available for this currency.",
                 style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: _totalFee != null ? AppColors.primary : AppColors.danger)),
+                    color: _totalFee != null ? AppColors.primary : AppColors.textMuted)),
         const SizedBox(height: 6),
         Text("You'll receive a one-time code on WhatsApp from our direct partner, Eversend — this is the final step in confirming your deposit.",
             style: TextStyle(fontSize: 13.5, color: AppColors.textMuted)),
@@ -655,13 +667,33 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
   }
 
   Widget _buildProcessingStep() {
+    // Real fix: the backend now polls Eversend's own transaction
+    // status for up to ~25s before responding (see collections.js's
+    // POST /momo — momo confirmation is asynchronous, since the
+    // customer has to approve a prompt on their phone, so a single
+    // instant response was often just "pending", not a real result).
+    // A static "Confirming…" message for up to 25 real seconds reads
+    // as broken; this rotates through a short sequence so the wait
+    // feels like genuine progress instead.
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: MoneyFlowAnimation(
-          fromLabel: '📱',
-          toLabel: '💰',
-          statusText: "Confirming your mobile money payment…",
+        child: StreamBuilder<int>(
+          stream: Stream.periodic(const Duration(seconds: 4), (i) => i),
+          builder: (context, snapshot) {
+            const messages = [
+              "Confirming your mobile money payment…",
+              "Waiting for your approval on your phone…",
+              "Almost there — this can take a few seconds…",
+              "Still confirming — hang tight…",
+            ];
+            final index = (snapshot.data ?? 0) % messages.length;
+            return MoneyFlowAnimation(
+              fromLabel: '📱',
+              toLabel: '💰',
+              statusText: messages[index],
+            );
+          },
         ),
       ),
     );

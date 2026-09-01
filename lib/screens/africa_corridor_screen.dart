@@ -87,6 +87,18 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   double? _exchangeRate;
   double? _platformFeeAmount;
   Map<String, dynamic>? _lastQuote;
+  // Real, backend-confirmed payout methods for the current
+  // destination — sourced from GET /api/v1/rates/corridor-methods,
+  // the same corridors.js data every real payout decision in the
+  // backend already trusts. Previously every send screen showed
+  // "Mobile money" as selectable for every country regardless of
+  // whether it's actually supported — confirmed as the real cause of
+  // "Mobile Money payments to Nigeria are not supported at the
+  // moment" (Nigeria has always only supported bank transfers; the
+  // UI just never checked). Defaults to null (still loading) rather
+  // than an empty list, so the chips aren't incorrectly disabled
+  // before the real methods are known.
+  List<String>? _supportedMethods;
   // Set when a quote preview fails specifically because this
   // destination currency needs a Klasha-backed bank account set up
   // first (see paymentRouter.js's getQuotation — this is a real,
@@ -118,6 +130,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
       _sourceAfricanCountry = kLiveEversendCorridors
           .firstWhere((c) => c.countryName != _destination.countryName);
     }
+    _fetchSupportedMethods();
     // Real fix: previously gated behind hasLiveRate (a static flag,
     // true only for South Africa/ZAR) because the old rate source
     // (Frankfurter) genuinely couldn't quote most African currencies.
@@ -231,6 +244,31 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     // now, not this static flag.
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 350), _fetchQuote);
+  }
+
+  Future<void> _fetchSupportedMethods() async {
+    final result = await getData(
+      urlPath: "/api/v1/rates/corridor-methods/${_destination.countryCode}",
+      authKey: widget.userAuthKey,
+    );
+    if (!mounted) return;
+    final methods = result['methods'];
+    final resolved = methods is List ? methods.map((m) => m.toString()).toList() : <String>[];
+    setState(() {
+      _supportedMethods = resolved;
+      // If the currently-selected method isn't actually supported for
+      // this destination (e.g. Mobile money was selected, then the
+      // destination changed to Nigeria, which only supports bank),
+      // switch to the first genuinely supported one rather than leave
+      // the user on a dead-end selection they can't successfully send
+      // with.
+      if (resolved.isNotEmpty) {
+        final currentMethodName = _payoutMethod == 0 ? 'momo' : (_payoutMethod == 1 ? 'bank' : 'dutch_bank');
+        if (currentMethodName != 'dutch_bank' && !resolved.contains(currentMethodName)) {
+          _payoutMethod = resolved.contains('momo') ? 0 : (resolved.contains('bank') ? 1 : _payoutMethod);
+        }
+      }
+    });
   }
 
   Future<void> _fetchQuote() async {
@@ -362,6 +400,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
         _exchangeRate = null;
       });
       _fetchQuote();
+      _fetchSupportedMethods();
     }
   }
 
@@ -871,9 +910,9 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
         const SizedBox(height: 16),
         Row(
           children: [
-            Expanded(child: _payoutMethodChip(0, "Mobile money")),
+            Expanded(child: _payoutMethodChip(0, "Mobile money", disabled: _supportedMethods != null && !_supportedMethods!.contains('momo'))),
             const SizedBox(width: 8),
-            Expanded(child: _payoutMethodChip(1, "Bank account")),
+            Expanded(child: _payoutMethodChip(1, "Bank account", disabled: _supportedMethods != null && !_supportedMethods!.contains('bank'))),
             const SizedBox(width: 8),
             Expanded(child: _payoutMethodChip(2, "Dutch Bank")),
           ],
@@ -1042,24 +1081,27 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     );
   }
 
-  Widget _payoutMethodChip(int index, String label) {
+  Widget _payoutMethodChip(int index, String label, {bool disabled = false}) {
     final bool isActive = _payoutMethod == index;
     return GestureDetector(
-      onTap: () => _onPayoutMethodChanged(index),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: isActive ? AppColors.ink : Colors.white,
-          borderRadius: BorderRadius.circular(AppRadii.md),
-          border: Border.all(color: isActive ? AppColors.ink : AppColors.border),
+      onTap: disabled ? null : () => _onPayoutMethodChanged(index),
+      child: Opacity(
+        opacity: disabled ? 0.4 : 1.0,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: isActive ? AppColors.ink : Colors.white,
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            border: Border.all(color: isActive ? AppColors.ink : AppColors.border),
+          ),
+          child: Text(label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: isActive ? Colors.white : AppColors.inkMuted)),
         ),
-        child: Text(label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-                color: isActive ? Colors.white : AppColors.inkMuted)),
       ),
     );
   }

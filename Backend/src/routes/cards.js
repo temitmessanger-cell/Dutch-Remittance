@@ -199,14 +199,18 @@ router.post('/user', requireAppUser, async (req, res, next) => {
     }
 
     const data = await eversend.post('/cards/user', eversendBody);
-    // Eversend's own docs confirm the field is "userId" ("the card
-    // userId is the key needed when creating a new card") — checked
-    // first, with id/data.userId/data.id as defensive fallbacks in
-    // case the real response nests differently than the docs' prose
-    // implies (no example response body is published to confirm the
-    // exact shape/depth).
+    // Real fix, confirmed against a genuine production response: the
+    // actual shape is { data: { message, data: { id, userId, ... } },
+    // success: true } — three levels deep, not two. The previous
+    // fallback chain only checked up to data?.data?.userId, which
+    // could never reach the real path for this exact, confirmed shape.
     const cardUserId =
-      data?.userId ?? data?.id ?? data?.data?.userId ?? data?.data?.id;
+      data?.data?.data?.userId ??
+      data?.data?.data?.id ??
+      data?.userId ??
+      data?.id ??
+      data?.data?.userId ??
+      data?.data?.id;
 
     if (!cardUserId) {
       // Never report success without a usable ID — this used to
@@ -329,7 +333,17 @@ router.post('/', requireAppUser, async (req, res, next) => {
     // hit requireOwnedCard's lookup by eversend_card_id, found
     // nothing, and failed with "card not found" one screen later.
     // Fail here instead, where the real problem is.
-    const eversendCardId = data?.id ?? data?.data?.id ?? data?.cardId ?? data?.data?.cardId;
+    // Widened to also check a third level of nesting (data?.data?.data?.id/cardId)
+    // as a precaution — NOT independently confirmed for this specific
+    // response the way /cards/user's shape was (see cardUserId's
+    // extraction above), but the /cards/user response's confirmed real
+    // shape nests three levels deep, so this endpoint doing the same
+    // is a real, plausible risk worth guarding against defensively.
+    // raw: data is still returned on failure either way, so a wrong
+    // guess here still surfaces the real payload for diagnosis.
+    const eversendCardId =
+      data?.data?.data?.id ?? data?.data?.data?.cardId ??
+      data?.id ?? data?.data?.id ?? data?.cardId ?? data?.data?.cardId;
     if (!eversendCardId) {
       return res.status(502).json({
         error: "Creating your card didn't complete. Please try again, or contact support if this keeps happening.",
@@ -447,7 +461,24 @@ router.post('/instant', requireAppUser, async (req, res, next) => {
       };
 
       const created = await eversend.post('/cards/user', cardholderBody);
-      cardUserId = created?.id ?? created?.data?.id ?? created?.userId;
+      // Real fix, confirmed against a genuine production response:
+      // Eversend's actual shape for this call is
+      // { data: { message, data: { id, userId, ... } }, success: true }
+      // — the real ID is nested THREE levels deep (created.data.data.id),
+      // not two. The previous fallback chain (created?.id ??
+      // created?.data?.id ?? created?.userId) can never reach that
+      // path, so cardUserId was always undefined for this exact,
+      // real response shape — triggering "Could not provision a
+      // cardholder" even when Eversend's own response explicitly said
+      // "Card user created successfully" with success: true. Widened
+      // the fallback chain to check the correctly-nested path first.
+      cardUserId =
+        created?.data?.data?.userId ??
+        created?.data?.data?.id ??
+        created?.data?.userId ??
+        created?.data?.id ??
+        created?.userId ??
+        created?.id;
 
       await supabaseAdmin
         .from('profiles')
@@ -497,7 +528,17 @@ router.post('/instant', requireAppUser, async (req, res, next) => {
 
     // Same fail-loud fix as POST / above — never insert a card row
     // with no real Eversend ID behind it.
-    const eversendCardId = data?.id ?? data?.data?.id ?? data?.cardId ?? data?.data?.cardId;
+    // Widened to also check a third level of nesting (data?.data?.data?.id/cardId)
+    // as a precaution — NOT independently confirmed for this specific
+    // response the way /cards/user's shape was (see cardUserId's
+    // extraction above), but the /cards/user response's confirmed real
+    // shape nests three levels deep, so this endpoint doing the same
+    // is a real, plausible risk worth guarding against defensively.
+    // raw: data is still returned on failure either way, so a wrong
+    // guess here still surfaces the real payload for diagnosis.
+    const eversendCardId =
+      data?.data?.data?.id ?? data?.data?.data?.cardId ??
+      data?.id ?? data?.data?.id ?? data?.cardId ?? data?.data?.cardId;
     if (!eversendCardId) {
       return res.status(502).json({
         error: "Creating your card didn't complete. Please try again, or contact support if this keeps happening.",

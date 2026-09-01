@@ -282,10 +282,58 @@ router.post('/momo', requireAppUser, async (req, res, next) => {
       ...(customer ? { customer } : {}),
     });
 
+    // Real fix for "shows fail, then a popup shows success a few
+    // seconds later" — confirmed root cause: mobile money collection
+    // is inherently asynchronous (the customer has to approve a
+    // USSD/app prompt on their phone), so Eversend's response to the
+    // initial /collections/momo call is very often just "request
+    // accepted, processing" (status: pending), not a final result.
+    // This route used to respond to the frontend immediately with
+    // whatever status that first response carried — if it was
+    // "pending", the frontend had no way to distinguish that from a
+    // real failure, and the ACTUAL success only ever arrived later
+    // via the webhook, with no way for the user to see it without
+    // manually refreshing.
+    //
+    // Now: if the initial response isn't already a genuine terminal
+    // status, poll Eversend's own confirmed transaction-status
+    // endpoint (GET /v1/transactions/{transactionId}) for a real
+    // result, before ever responding to the app. Bounded to ~25s
+    // total (leaving real headroom under the app's own 35s client
+    // timeout) so this can never hang forever — if it's still
+    // pending after that window, the frontend is told it's pending
+    // honestly (not failed), and the webhook will still correctly
+    // credit the wallet whenever Eversend's own confirmation lands,
+    // even after this response has already gone out.
+    let finalData = data;
+    const initialStatus = (data?.status || '').toLowerCase();
+    const terminalStatuses = ['completed', 'successful', 'success', 'failed', 'declined', 'error'];
+    const transactionId = data?.transactionId || data?.id || data?.data?.transactionId || data?.data?.id;
+
+    if (!terminalStatuses.includes(initialStatus) && transactionId) {
+      const pollIntervalsMs = [1500, 2000, 2500, 3000, 3500, 4000, 4500, 4000]; // ~25s total
+      for (const waitMs of pollIntervalsMs) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        try {
+          const polled = await eversend.get(`/transactions/${transactionId}`);
+          const polledStatus = (polled?.status || polled?.data?.status || '').toLowerCase();
+          if (terminalStatuses.includes(polledStatus)) {
+            finalData = { ...data, ...polled, status: polled?.status || polled?.data?.status };
+            break;
+          }
+        } catch (_) {
+          // A single failed poll attempt isn't fatal — keep trying
+          // for the rest of the window; the original `data` (likely
+          // still "pending") is the safe fallback if every poll
+          // attempt fails.
+        }
+      }
+    }
+
     await supabaseAdmin.from('transactions').insert({
       user_id: req.user.id,
       type: 'deposit',
-      status: data?.status ?? 'pending',
+      status: finalData?.status ?? 'pending',
       // The real deposit figure the wallet should be credited — NOT
       // the higher phone-charged `amount` — since this is exactly
       // what webhooks.js's deposit-credit logic reads once the
@@ -298,14 +346,14 @@ router.post('/momo', requireAppUser, async (req, res, next) => {
       speed: depositSpeed,
       phone_number: phone,
       provider: 'eversend',
-      eversend_reference: data?.transactionRef ?? transactionRef ?? null,
+      eversend_reference: finalData?.transactionRef ?? transactionRef ?? null,
       // The real charged amount (phone bill) is preserved here for
       // audit/support purposes even though it's not what gets
       // credited to the wallet.
-      raw_response: { ...data, chargedAmount: amount, creditAmount: realCreditAmount },
+      raw_response: { ...finalData, chargedAmount: amount, creditAmount: realCreditAmount },
     });
 
-    res.json(data);
+    res.json(finalData);
   } catch (err) {
     next(err);
   }

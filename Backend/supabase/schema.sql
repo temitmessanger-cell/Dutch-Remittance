@@ -552,3 +552,19 @@ create or replace function public.get_user_balance_usd(target_user_id uuid)
 returns numeric as $$
   select coalesce(sum(amount_usd), 0) from public.wallet_ledger where user_id = target_user_id;
 $$ language sql stable;
+
+-- ------------------------------------------------------------------
+-- phone_login_otp — holds the server-side pinId for a real Eversend
+-- WhatsApp OTP request, between /phone-otp/request and
+-- /phone-otp/verify (src/routes/auth.js). The pinId itself is never
+-- sent to the client — only the phone number and (implicitly) "a
+-- code was sent" are — so a login attempt genuinely requires the real
+-- code from WhatsApp, not just a guessable/replayable value the
+-- client already has.
+-- ------------------------------------------------------------------
+create table if not exists public.phone_login_otp (
+  phone text primary key,
+  pin_id text not null,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
