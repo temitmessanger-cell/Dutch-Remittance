@@ -169,9 +169,11 @@ class _InstallBanner extends StatelessWidget {
                   color: const Color(0xFF1546A0),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                alignment: Alignment.center,
-                child: const Text('DR',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
+                clipBehavior: Clip.antiAlias,
+                child: Image.asset(
+                  'assets/images/hadwin_system/hadwin-splash-screen-logo.png',
+                  fit: BoxFit.contain,
+                ),
               ),
               const SizedBox(width: 12),
               // Text

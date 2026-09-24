@@ -219,13 +219,11 @@ class _OfflineSetupScreenState extends State<OfflineSetupScreen>
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: Colors.white.withOpacity(0.25), width: 1.5),
         ),
-        alignment: Alignment.center,
-        child: Text('DR',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 32, fontWeight: FontWeight.w800,
-            letterSpacing: -1,
-          )),
+        clipBehavior: Clip.antiAlias,
+        child: Image.asset(
+          'assets/images/hadwin_system/hadwin-splash-screen-logo.png',
+          fit: BoxFit.contain,
+        ),
       ),
     );
   }

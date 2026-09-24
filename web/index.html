@@ -42,8 +42,10 @@
       width:76px; height:76px; border-radius:20px;
       background:rgba(255,255,255,0.13);
       display:flex; align-items:center; justify-content:center;
-      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-      font-size:28px; font-weight:800; color:#fff; letter-spacing:-1px;
+      overflow:hidden;
+    }
+    #dr-splash-icon img {
+      width:100%; height:100%; object-fit:contain;
     }
     #dr-splash-name {
       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
@@ -61,8 +63,7 @@
     #a2hs.show { display:flex; }
     #a2hs-icon {
       width:42px; height:42px; border-radius:10px; flex-shrink:0;
-      background:#1546A0; display:flex; align-items:center; justify-content:center;
-      font-size:15px; font-weight:800; color:#fff;
+      background:#1546A0; display:block; object-fit:contain;
     }
     #a2hs-body { flex:1; min-width:0; }
     #a2hs-body strong { display:block; font-size:14px; color:#111; margin-bottom:2px; }
@@ -77,12 +78,12 @@
 <body>
 
   <div id="dr-splash">
-    <div id="dr-splash-icon">DR</div>
+    <div id="dr-splash-icon"><img src="icons/Icon-192.png" alt="Dutch Remit" /></div>
     <span id="dr-splash-name">Dutch Remit</span>
   </div>
 
   <div id="a2hs">
-    <div id="a2hs-icon">DR</div>
+    <img id="a2hs-icon" src="icons/Icon-192.png" alt="Dutch Remit" />
     <div id="a2hs-body">
       <strong>Install Dutch Remit</strong>
       <span>Works offline · No browser bar · Faster</span>
