@@ -48,10 +48,7 @@ const BOOT_SHELL = [
   '/index.html',
   '/manifest.json',
   '/offline.html',
-  '/icons/Icon-192.png',
-  '/icons/Icon-512.png',
-  '/icons/Icon-96.png',
-  '/icons/Icon-48.png',
+  '/favicon.png',
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

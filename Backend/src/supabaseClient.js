@@ -16,7 +16,7 @@ const supabaseAdmin = createClient(
 // which requireAppUser.js already knows how to verify properly.
 const supabaseAuth = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY,
+  process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY,
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 

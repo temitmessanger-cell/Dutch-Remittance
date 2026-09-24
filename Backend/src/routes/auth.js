@@ -277,7 +277,10 @@ router.post('/google-play-review', async (req, res) => {
       message: error.message,
       ip: req.ip,
     });
-    return res.status(503).json({ error: 'Review account is temporarily unavailable.' });
+    return res.status(503).json({
+      error: 'Review account is temporarily unavailable.',
+      code: 'REVIEW_ACCOUNT_PROVISIONING_FAILED',
+    });
   }
 });
 
