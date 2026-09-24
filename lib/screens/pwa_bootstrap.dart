@@ -122,7 +122,15 @@ class _BrowserWrapper extends StatefulWidget {
 }
 
 class _BrowserWrapperState extends State<_BrowserWrapper> {
-  bool _bannerVisible = true;
+  bool _bannerVisible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.delayed(const Duration(milliseconds: 500), () {
+      if (mounted && canInstallPwa) setState(() => _bannerVisible = true);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -226,11 +234,6 @@ class _InstallBanner extends StatelessWidget {
 
   void _triggerInstallPrompt() {
     if (!kIsWeb) return;
-    // Delegate to the JS install prompt in index.html
-    try {
-      // ignore: undefined_prefixed_name
-      // js_util.callMethod(html.window, 'dutchRemitTriggerInstall', []);
-      // Simple approach: dispatch a custom event that index.html listens to
-    } catch (_) {}
+    triggerInstallPrompt();
   }
 }

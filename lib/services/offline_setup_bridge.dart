@@ -35,15 +35,10 @@ class OfflineSetupBridge {
     // Web — register the JS event listener via pwa_detection.dart
     registerSwMessageListener(_onRawMessage);
 
-    // If the SW already finished before Flutter loaded, check last known msg
-    _pollLastKnownMessage();
-  }
-
-  void _pollLastKnownMessage() {
-    // index.html stores the last SW message at window.__DR_SW_LAST_MSG__
-    // We can poll it via JS interop (handled by pwa_detection_web.dart)
-    // For now we rely on the event listener above; future work: add JS interop
-    // to read window.__DR_SW_LAST_MSG__ directly.
+    // Replay the last message if the service worker finished before Flutter
+    // attached its listener.
+    final last = getLastSwMessage();
+    if (last != null) _onRawMessage(last);
   }
 
   void _onRawMessage(Map<String, dynamic> msg) {

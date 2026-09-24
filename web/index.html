@@ -113,6 +113,7 @@
 
     // ── SW registration ────────────────────────────────────────────────────
     var lastSwMsg = null;
+    window.dutchRemitCanInstall = false;
     if('serviceWorker' in navigator){
       navigator.serviceWorker
         .register('/sw.js',{scope:'/',updateViaCache:'none'})
@@ -137,7 +138,7 @@
       if(isPwa()) return;
       if(sessionStorage.getItem('a2hs_dismissed')) return;
       e.preventDefault(); dip=e;
-      a2hs&&a2hs.classList.add('show');
+      window.dutchRemitCanInstall = true;
     });
     document.getElementById('a2hs-install')
       &&document.getElementById('a2hs-install').addEventListener('click',function(){

@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.dubiabank.dutchremit.twa",
+      "sha256_cert_fingerprints": [
+        "E5:86:91:69:BA:37:58:D1:77:94:95:B4:62:EB:39:E8:D2:0B:70:F0:0D:BB:FB:A1:A9:25:8E:97:AE:C5:48:83"
+      ]
+    }
+  }
+]

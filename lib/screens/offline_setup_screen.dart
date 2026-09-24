@@ -68,7 +68,7 @@ class _OfflineSetupScreenState extends State<OfflineSetupScreen>
 
     // Safety timeout — if SW never sends INSTALL_COMPLETE after 5 min,
     // let the user in anyway (they may have slow connection or old browser).
-    _timeoutTimer = Timer(_totalTimeout, _finishSetup);
+    _timeoutTimer = Timer(_totalTimeout, _setupTimedOut);
   }
 
   @override
@@ -83,8 +83,6 @@ class _OfflineSetupScreenState extends State<OfflineSetupScreen>
   // ── SW message listener ─────────────────────────────────────────────────
   void _startListening() {
     OfflineSetupBridge.instance.startListening();
-    _timeoutTimer = Timer(_totalTimeout, _finishSetup);
-
     OfflineSetupBridge.instance.messages.listen(_handleSwMsg);
 
     Future.delayed(const Duration(milliseconds: 400), () {
@@ -105,9 +103,22 @@ class _OfflineSetupScreenState extends State<OfflineSetupScreen>
         _onMainDownloadComplete();
         break;
       case SwMessageType.error:
-        if (mounted) setState(() => _hasError = true);
+        if (mounted) {
+          setState(() {
+            _hasError = true;
+            _statusLine = msg.error ?? 'Some offline files could not be downloaded.';
+          });
+        }
         break;
     }
+  }
+
+  void _setupTimedOut() {
+    if (!mounted || _phase == _Phase.done) return;
+    setState(() {
+      _hasError = true;
+      _statusLine = 'Offline setup took too long. Please try again.';
+    });
   }
 
   void _updateProgress(int cached, int total) {
@@ -387,8 +398,8 @@ class _OfflineSetupScreenState extends State<OfflineSetupScreen>
       ),
       const SizedBox(height: 12),
       TextButton(
-        onPressed: _finishSetup,
-        child: Text('Continue anyway →',
+        onPressed: reloadPage,
+        child: Text('Retry offline setup',
           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
       ),
     ],

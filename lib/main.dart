@@ -24,6 +24,7 @@ import 'package:dutch_remit/providers/tab_navigation_provider.dart';
 
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
 import 'package:dutch_remit/utilities/make_api_request.dart';
+import 'package:dutch_remit/utilities/pwa_detection.dart';
 
 import 'package:provider/provider.dart';
 
@@ -138,8 +139,22 @@ class _MyAppState extends State<MyApp> {
       await CardsStorage().initializeAvailableCards(loggedInUserAuthKey);
       await SuccessfulTransactionsStorage().initializeSuccessfulTransactions();
 
-      final userValidity =
-          await fetchUserId(loggedInUserAuthKey, loggedInUserId);
+      bool userValidity = false;
+      try {
+        userValidity = await fetchUserId(loggedInUserAuthKey, loggedInUserId);
+      } catch (_) {}
+
+      // An installed PWA may start without a network connection. Reuse the
+      // persisted profile for the initial shell, then refresh when online.
+      if (!userValidity && kIsWeb && isPwaMode) {
+        final cachedUser = await userDataStorage.getUserData();
+        if (!cachedUser.containsKey('localDBError') && cachedUser.isNotEmpty) {
+          _loggedInUserData = cachedUser;
+          Provider.of<UserLoginStateProvider>(context, listen: false)
+              .initializeBankBalance(cachedUser);
+          userValidity = true;
+        }
+      }
       //* user data saved
 
       loginStatus = userValidity;

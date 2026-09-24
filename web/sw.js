@@ -8,28 +8,18 @@
  *
  * First-launch progress messages to Flutter:
  *   { type: 'INSTALL_PROGRESS', cached: N, total: T }  — after each file
- *   { type: 'INSTALL_COMPLETE' }                        — when all done
+ *   { type: 'INSTALL_COMPLETE' }                        — when all required files are cached
  *   { type: 'INSTALL_ERROR',   error: '...' }           — on failure
  */
 
 const CACHE_VERSION = 'v1';
 const SHELL_CACHE   = `dr-shell-${CACHE_VERSION}`;
-const API_CACHE     = `dr-api-${CACHE_VERSION}`;
 
 // ── API paths safe to serve stale (read-only, no money movement) ───────────
 const STALE_OK = [
-  '/api/v1/wallets/my-balance',
-  '/api/v1/transactions',
-  '/api/v1/cards',
-  '/api/v1/cards/analytics',
   '/api/v1/rates/corridor-methods',
   '/api/v1/payouts/countries',
   '/api/v1/payouts/banks',
-  '/api/v1/rewards/tasks',
-  '/api/v1/rewards/redemptions',
-  '/Dutch%20Remit/v3/all-contacts',
-  '/Dutch%20Remit/v2/businesses-and-brands',
-  '/Dutch%20Remit/v1/all-transactions',
 ];
 
 // ── API paths that MUST reach the network (financial writes) ───────────────
@@ -158,32 +148,52 @@ self.addEventListener('install', event => {
     // ── Phase 2: Cache primary assets WITH progress messages ─────────────
     const total = primaryUrls.length;
     let cached  = 0;
+    let failed  = [];
 
     for (const url of primaryUrls) {
       try {
         const res = await fetchWithRetry(url);
-        if (res) await cache.put(url, res);
+        if (res) {
+          await cache.put(url, res);
+        } else {
+          failed.push(url);
+        }
       } catch (err) {
+        failed.push(url);
         console.warn(`[DR SW] Primary cache skip: ${url}`, err.message);
       }
       cached++;
       broadcast({ type: 'INSTALL_PROGRESS', cached, total });
     }
 
-    broadcast({ type: 'INSTALL_COMPLETE' });
-    console.log(`[DR SW] Primary cache done: ${cached}/${total}`);
-
-    // ── Phase 3: Secondary (heavy) assets — silent background ────────────
-    // User already sees 100% — these download quietly without any UI update
-    (async () => {
-      for (const url of secondaryUrls) {
-        try {
-          const res = await fetchWithRetry(url, 2, 1000);
-          if (res) await cache.put(url, res);
-        } catch (_) {}
+    // ── Phase 3: Heavy assets — download silently before completion ──────
+    // These files are not counted in the visible primary progress, but the
+    // setup is not complete until they are cached or an error is reported.
+    for (const url of secondaryUrls) {
+      try {
+        const res = await fetchWithRetry(url, 2, 1000);
+        if (res) {
+          await cache.put(url, res);
+        } else {
+          failed.push(url);
+        }
+      } catch (err) {
+        failed.push(url);
+        console.warn(`[DR SW] Secondary cache skip: ${url}`, err.message);
       }
-      console.log(`[DR SW] Secondary cache done: ${secondaryUrls.length} additional files`);
-    })();
+    }
+
+    if (failed.length > 0) {
+      await broadcast({
+        type: 'INSTALL_ERROR',
+        error: `Unable to cache ${failed.length} required file(s).`,
+        failed,
+      });
+      return;
+    }
+
+    await broadcast({ type: 'INSTALL_COMPLETE', cached, total });
+    console.log(`[DR SW] Offline cache complete: ${cached} primary + ${secondaryUrls.length} secondary files`);
 
   })());
 });
@@ -198,7 +208,7 @@ self.addEventListener('activate', event => {
     const keys = await caches.keys();
     await Promise.all(
       keys
-        .filter(k => k !== SHELL_CACHE && k !== API_CACHE)
+        .filter(k => k !== SHELL_CACHE)
         .map(k => { console.log('[DR SW] Purging old cache:', k); return caches.delete(k); })
     );
   })());
@@ -224,11 +234,15 @@ self.addEventListener('fetch', event => {
   // ── NETWORK-ONLY: financial writes — never touch the cache ────────────
   if (isApi && pathMatches(url, NETWORK_ONLY)) return;   // pass through
 
-  // ── NETWORK-FIRST → STALE: safe API reads ─────────────────────────────
+  // ── NETWORK-FIRST: public API reads only ───────────────────────────────
   if (isApi && pathMatches(url, STALE_OK)) {
     event.respondWith(networkFirstStale(request, 4000));
     return;
   }
+
+  // Never put unknown or authenticated API responses in the shared shell
+  // cache. App-level storage can add user-scoped caching deliberately.
+  if (isApi) return;
 
   // ── CACHE-FIRST: app shell + all Flutter assets ────────────────────────
   event.respondWith(cacheFirst(request));
@@ -256,20 +270,14 @@ async function cacheFirst(request) {
 
 // ─── Network-First with stale fallback ────────────────────────────────────
 async function networkFirstStale(request, timeoutMs) {
-  const cache = await caches.open(API_CACHE);
-
   try {
     const net = await Promise.race([
       fetch(request.clone()),
       new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeoutMs)),
     ]);
 
-    if (net.ok) cache.put(request, net.clone());
     return net;
   } catch (_) {
-    const stale = await cache.match(request);
-    if (stale) return stale;
-
     if (request.mode === 'navigate') {
       return caches.match('/offline.html');
     }

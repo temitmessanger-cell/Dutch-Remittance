@@ -41,6 +41,26 @@ void registerSwMessageListener(void Function(Map<String, dynamic>) onMessage) {
   });
 }
 
+/// Returns the last service-worker install message, allowing Flutter to catch
+/// up when the worker finished before the app listener was attached.
+Map<String, dynamic>? getLastSwMessage() {
+  final value = (html.window as dynamic).__DR_SW_LAST_MSG__;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return null;
+}
+
+bool get canInstallPwa => (html.window as dynamic).dutchRemitCanInstall == true;
+
+void triggerInstallPrompt() {
+  try {
+    (html.window as dynamic).dutchRemitTriggerInstall();
+  } catch (_) {}
+}
+
+void reloadPage() {
+  html.window.location.reload();
+}
+
 /// Clear any saved URL so the browser doesn't try to restore
 /// a deep link that would bypass the login screen.
 void removeSavedUrl() {
