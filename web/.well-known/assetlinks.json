@@ -5,7 +5,9 @@
       "namespace": "android_app",
       "package_name": "com.dubiabank.dutchremit.twa",
       "sha256_cert_fingerprints": [
-        "E5:86:91:69:BA:37:58:D1:77:94:95:B4:62:EB:39:E8:D2:0B:70:F0:0D:BB:FB:A1:A9:25:8E:97:AE:C5:48:83"
+        "40:BA:28:C5:D6:7E:0E:66:58:38:F2:D7:C4:0D:3E:2E:CC:03:11:E0:51:90:72:39:87:4B:77:04:41:59:65:22",
+        "EF:07:93:BE:D2:2E:79:72:AE:AE:BC:4A:92:7C:8D:C0:8E:E8:08:A5:19:EE:29:39:AD:D9:7E:0F:4C:B9:BD:7E",
+        "CC:B9:E9:55:60:C4:E7:BF:4D:4E:BE:5C:DD:40:8B:EC:F1:E9:A8:B6:DA:3A:DB:E3:FC:66:69:EC:A3:22:FB:D9"
       ]
     }
   }
