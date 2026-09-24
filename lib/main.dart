@@ -45,9 +45,14 @@ void main() async {
 
   await Hive.initFlutter();
 
-  // Initialize offline services
-  await ConnectivityService.instance.initialize();
-  await OfflineCache.initialize();
+  // Offline services are optional during startup; a browser/plugin failure
+  // must not prevent the login screen from rendering.
+  try {
+    await ConnectivityService.instance.initialize();
+  } catch (_) {}
+  try {
+    await OfflineCache.initialize();
+  } catch (_) {}
 
   // One-time cleanup of the device-global boxes that used to cache
   // per-user business data (transactions, contacts, cards). These
@@ -70,13 +75,15 @@ void main() async {
   // Remaining boxes are legitimately device-local (login session,
   // device info, FX cache, product-tour-seen flag) and are opened
   // once here. None of them hold another user's business data.
-  await Future.wait([
-    _openUserDataBox(),
-    Hive.openBox(LoginInfoStorage.boxName),
-    Hive.openBox(UserDeviceInfoStorage.boxName),
-    Hive.openBox(CurrencyConversionService.boxName),
-    Hive.openBox(ProductTourStorage.boxName),
-  ]);
+  try {
+    await Future.wait([
+      _openUserDataBox(),
+      Hive.openBox(LoginInfoStorage.boxName),
+      Hive.openBox(UserDeviceInfoStorage.boxName),
+      Hive.openBox(CurrencyConversionService.boxName),
+      Hive.openBox(ProductTourStorage.boxName),
+    ]);
+  } catch (_) {}
 
   runApp(MultiProvider(
     providers: [

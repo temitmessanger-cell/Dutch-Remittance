@@ -52,7 +52,13 @@ class _PwaBootstrapState extends State<PwaBootstrap> {
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
+    SharedPreferences? prefs;
+    try {
+      prefs = await SharedPreferences.getInstance();
+    } catch (_) {
+      if (mounted) setState(() => _resolvedHome = widget.normalHome);
+      return;
+    }
 
     if (isPwaMode) {
       // ── Installed PWA ──────────────────────────────────────────────────
