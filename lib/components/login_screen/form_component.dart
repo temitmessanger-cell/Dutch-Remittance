@@ -92,7 +92,8 @@ class LoginFormComponentState extends State<LoginFormComponent> {
   }
 
   Future<void> _finishAuthenticatedLogin(
-      Map<String, dynamic> dataReceived) async {
+      Map<String, dynamic> dataReceived,
+      {bool skipOnboarding = false}) async {
     final status = await Future.wait([
       _saveLoggedInUserData(
           dataReceived['authorization_token'], dataReceived['user']),
@@ -116,6 +117,7 @@ class LoginFormComponentState extends State<LoginFormComponent> {
           .then((value) => Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(
                   builder: (context) => alreadyOnboarded
+                    || skipOnboarding
                       ? TabbedLayoutComponent(userData: dataReceived['user'])
                       : OnboardingScreen(userData: dataReceived['user'])),
               (route) => false));
@@ -141,7 +143,7 @@ class LoginFormComponentState extends State<LoginFormComponent> {
     }
 
     setState(() => _isVerifying = true);
-    await _finishAuthenticatedLogin(response);
+    await _finishAuthenticatedLogin(response, skipOnboarding: true);
   }
 
   void _requestCode() async {
