@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:dutch_remit/services/offline_action_guard.dart';
 import 'package:provider/provider.dart';
 import 'package:dutch_remit/database/successful_transactions_storage.dart';
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
@@ -305,6 +306,7 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
   }
 
   Future<void> _confirmSend() async {
+    if (!await OfflineActionGuard.check(context, action: 'Bank Transfer')) return;
     if (_isGuest) {
       _showCreateAccountPrompt();
       return;
@@ -331,11 +333,9 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
       setState(() => _errorMessage = "Enter the recipient's phone number.");
       return;
     }
-    if (_quotationToken == null) {
-      setState(() => _errorMessage =
-          "Couldn't lock in a rate for this transfer — try refreshing the amount, or the sending wallet may not have enough balance to cover it yet.");
-      return;
-    }
+    // Eversend returns token: null on quotation responses for this
+    // account type — the payout endpoint accepts transfer params
+    // directly without a pre-locked token. Do not block on null.
 
     setState(() {
       _isSending = true;
@@ -491,6 +491,11 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
     // real balance instead of guessing at a local decrement.
     await Provider.of<UserLoginStateProvider>(context, listen: false)
         .syncBalanceFromEversend(widget.userAuthKey);
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      Provider.of<UserLoginStateProvider>(context, listen: false)
+          .syncBalanceFromEversend(widget.userAuthKey);
+    });
 
     _hideProcessingOverlay();
     setState(() {

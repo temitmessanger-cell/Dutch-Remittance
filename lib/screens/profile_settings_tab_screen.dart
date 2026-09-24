@@ -10,7 +10,8 @@ import 'package:dutch_remit/utilities/slide_right_route.dart';
 /// their own home rather than being tucked away on an unrelated screen.
 class ProfileSettingsTabScreen extends StatelessWidget {
   final Map<String, dynamic> user;
-  const ProfileSettingsTabScreen({Key? key, required this.user}) : super(key: key);
+  final String? userAuthKey;
+  const ProfileSettingsTabScreen({Key? key, required this.user, this.userAuthKey}) : super(key: key);
 
   String _displayName() {
     final first = user['first_name']?.toString().trim() ?? '';
@@ -138,7 +139,7 @@ class ProfileSettingsTabScreen extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: _RewardsHubCard(
                 onTap: () => Navigator.push(
-                    context, SlideRightRoute(page: const RewardsHubScreen())),
+                    context, SlideRightRoute(page: RewardsHubScreen(userAuthKey: userAuthKey))),
               ),
             ),
             Divider(height: 1, color: AppColors.divider),

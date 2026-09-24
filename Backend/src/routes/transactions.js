@@ -36,7 +36,25 @@ router.get('/', requireAppUser, async (req, res, next) => {
 
   if (error) return res.status(500).json({ error: 'Could not load transactions.' });
 
-  res.json({ transactions: data || [] });
+  const normalized = (data || []).map(t => ({
+    // Raw Supabase fields (for new code)
+    ...t,
+    // Flutter-expected legacy field names (for transaction activity screens)
+    transactionMemberName: t.beneficiary_name ||
+      (t.type === 'deposit'
+        ? `Deposit · ${t.currency || ''}`
+        : t.type === 'exchange'
+          ? `Swap · ${t.currency || ''}`
+          : `Transfer · ${t.currency || ''}`),
+    transactionAmount: t.amount != null ? String(t.amount) : '0',
+    transactionCurrency: t.currency || 'USD',
+    transactionType: t.type === 'deposit' ? 'credit' : 'debit',
+    transactionDate: t.created_at,
+    transactionID: t.id,
+    status: t.status,
+  }));
+
+  res.json({ transactions: normalized });
 });
 
 // GET /api/v1/transactions/:id

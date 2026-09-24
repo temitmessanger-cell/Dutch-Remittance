@@ -138,16 +138,28 @@ router.post('/eversend', async (req, res) => {
     if (updatedTxn && updatedTxn.type === 'deposit') {
       const confirmedStatuses = ['completed', 'successful', 'success'];
       if (confirmedStatuses.includes((updatedTxn.status || '').toLowerCase())) {
-        try {
-          const amountUsd = await convertToUsd(updatedTxn.amount, updatedTxn.currency);
-          if (amountUsd != null && amountUsd > 0) {
-            await credit(updatedTxn.user_id, amountUsd, `deposit (${updatedTxn.currency})`, updatedTxn.id);
-            console.log(`[webhooks/eversend] Credited user ${updatedTxn.user_id}: $${amountUsd.toFixed(2)} USD (${updatedTxn.amount} ${updatedTxn.currency})`);
-          } else {
-            console.error(`[webhooks/eversend] convertToUsd returned null/0 for ${updatedTxn.amount} ${updatedTxn.currency} — deposit confirmed but NOT credited to wallet_ledger.`);
+        // Idempotency: collections/momo now credits wallet_ledger
+        // immediately on confirmed success. Skip if already credited.
+        const { data: existingCredit } = await supabaseAdmin
+          .from('wallet_ledger')
+          .select('id')
+          .eq('reference_transaction_id', updatedTxn.id)
+          .maybeSingle();
+
+        if (existingCredit) {
+          console.log(`[webhooks/eversend] Skipping credit — transaction ${updatedTxn.id} already credited by collections/momo.`);
+        } else {
+          try {
+            const amountUsd = await convertToUsd(updatedTxn.amount, updatedTxn.currency);
+            if (amountUsd != null && amountUsd > 0) {
+              await credit(updatedTxn.user_id, amountUsd, `deposit (${updatedTxn.currency})`, updatedTxn.id);
+              console.log(`[webhooks/eversend] Credited user ${updatedTxn.user_id}: $${amountUsd.toFixed(2)} USD (${updatedTxn.amount} ${updatedTxn.currency})`);
+            } else {
+              console.error(`[webhooks/eversend] convertToUsd returned null/0 for ${updatedTxn.amount} ${updatedTxn.currency} — deposit confirmed but NOT credited to wallet_ledger.`);
+            }
+          } catch (creditErr) {
+            console.error('[webhooks/eversend] credit() threw — deposit confirmed but NOT credited to wallet_ledger.', creditErr);
           }
-        } catch (creditErr) {
-          console.error('[webhooks/eversend] credit() threw — deposit confirmed but NOT credited to wallet_ledger.', creditErr);
         }
       } else {
         console.log(`[webhooks/eversend] Transaction status is "${updatedTxn.status}", not yet a confirmed status — no credit issued (correct behavior, waiting for a genuinely completed status).`);

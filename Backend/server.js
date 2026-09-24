@@ -23,6 +23,8 @@ const businessesRouter = require('./src/routes/businesses');
 const devicesRouter = require('./src/routes/devices');
 const notificationsRouter = require('./src/routes/notifications');
 const usersRouter = require('./src/routes/users');
+const rewardsRouter = require('./src/routes/rewards');
+const seoRouter    = require('./src/routes/seo');
 const { errorHandler } = require('./src/errorHandler');
 
 const app = express();
@@ -134,6 +136,8 @@ app.get('/diagnostics/klasha', async (req, res) => {
 });
 
 // --- Clean, current API surface ---
+app.use('/', seoRouter);
+app.use('/api/v1/rewards', rewardsRouter);
 app.use('/api/v1/wallets', walletsRouter);
 app.use('/api/v1/rates', ratesRouter);
 app.use('/api/v1/transactions', transactionsRouter);
@@ -184,9 +188,73 @@ app.use('/Dutch%20Remit/v2', legacyCompatRouter);
 app.use('/Dutch%20Remit/v2/businesses-and-brands', businessesRouter);
 app.use('/Dutch%20Remit/v3/all-contacts', contactsRouter);
 
-app.use((req, res) => {
-  res.status(404).json({ error: `No route for ${req.method} ${req.originalUrl}` });
-});
+// ── Flutter Web / PWA static file serving ─────────────────────────────────
+// `flutter build web --release` outputs to build/web/
+// Copy the contents to Backend/public/ before deploying, OR
+// set FLUTTER_WEB_PATH env var to the absolute path of build/web/.
+//
+// Railway: add a build command that runs flutter build web --release
+// and copies build/web to Backend/public/.
+const flutterWebPath = process.env.FLUTTER_WEB_PATH ||
+  require('path').join(__dirname, 'public');
+
+if (require('fs').existsSync(flutterWebPath)) {
+  const path = require('path');
+
+  // ── sw.js and index.html: no-cache so updates deploy immediately ─────
+  app.get('/sw.js', (req, res) => {
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Content-Type': 'application/javascript',
+    });
+    res.sendFile(path.join(flutterWebPath, 'sw.js'));
+  });
+
+  app.get('/index.html', (req, res) => {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(flutterWebPath, 'index.html'));
+  });
+
+  app.get('/manifest.json', (req, res) => {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(flutterWebPath, 'manifest.json'));
+  });
+
+  // ── All other static assets: long cache (hashed filenames) ──────────
+  app.use(require('express').static(flutterWebPath, {
+    maxAge: '1y',
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, filePath) => {
+      // Fonts and WASM: long cache
+      if (/\.(woff2?|ttf|otf|eot|wasm)$/.test(filePath)) {
+        res.set('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+      // JS/CSS: long cache (Flutter uses content hashes)
+      if (/\.(js|css)$/.test(filePath)) {
+        res.set('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+      // Images and icons: moderate cache
+      if (/\.(png|svg|jpg|jpeg|gif|ico|webp)$/.test(filePath)) {
+        res.set('Cache-Control', 'public, max-age=604800');
+      }
+    },
+  }));
+
+  // ── SPA fallback: all unknown paths → index.html ─────────────────────
+  // Required for Flutter web router to handle deep links offline.
+  app.get('*', (req, res) => {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(flutterWebPath, 'index.html'));
+  });
+
+  console.log(`[DR] Serving Flutter web from: ${flutterWebPath}`);
+} else {
+  // Flutter web not built yet — API-only mode
+  app.use((req, res) => {
+    res.status(404).json({ error: `No route for ${req.method} ${req.originalUrl}` });
+  });
+}
 
 app.use(errorHandler);
 

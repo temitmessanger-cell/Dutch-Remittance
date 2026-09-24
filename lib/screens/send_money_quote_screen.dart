@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:dutch_remit/services/offline_action_guard.dart';
 import 'package:provider/provider.dart';
 import 'package:dutch_remit/database/currency_conversion_service.dart';
 import 'package:dutch_remit/database/successful_transactions_storage.dart';
@@ -39,6 +40,7 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
   double? _convertedAmount;
   double? _exchangeRate;
   double? _fee;
+  String? _errorMessage;
   bool _isQuoting = false;
   bool _isProcessing = false;
   bool _justDelivered = false;
@@ -124,7 +126,7 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
       });
       return;
     }
-    setState(() => _isQuoting = true);
+    setState(() { _isQuoting = true; _errorMessage = null; });
 
     // Real fix: this used to make a SECOND, separate call to
     // Frankfurter (a free ECB-sourced rate API) purely to show the
@@ -158,6 +160,9 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
         _convertedAmount = null;
         _exchangeRate = null;
         _fee = null;
+        _errorMessage = response['error']?.toString() ??
+            response['message']?.toString() ??
+            'Could not get a rate for this amount.';
       });
       return;
     }
@@ -177,8 +182,9 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
       // genuinely has no rate right now, this is null and the UI
       // shows an honest "Rate unavailable" instead (see build()
       // below), never an invented number.
-      _convertedAmount = (quotation is Map && quotation['destAmount'] != null)
-          ? double.tryParse(quotation['destAmount'].toString())
+      _convertedAmount = (quotation is Map)
+          ? double.tryParse(
+              (quotation['destinationAmount'] ?? quotation['destAmount'] ?? '').toString())
           : null;
       _exchangeRate = (quotation is Map && quotation['exchangeRate'] != null)
           ? double.tryParse(quotation['exchangeRate'].toString())
@@ -195,6 +201,7 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
   }
 
   Future<void> _sendNow() async {
+    if (!await OfflineActionGuard.check(context, action: 'Send Money')) return;
     if (_isGuest) {
       _showCreateAccountPrompt();
       return;
@@ -232,6 +239,11 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
     // and fixed across every other send screen this session.
     await Provider.of<UserLoginStateProvider>(context, listen: false)
         .syncBalanceFromEversend(widget.userAuthKey);
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      Provider.of<UserLoginStateProvider>(context, listen: false)
+          .syncBalanceFromEversend(widget.userAuthKey);
+    });
 
     setState(() {
       _isProcessing = false;
@@ -380,6 +392,19 @@ class _SendMoneyQuoteScreenState extends State<SendMoneyQuoteScreen> {
                       style: TextStyle(fontSize: 12.5, color: AppColors.textMuted, fontFamily: 'monospace'),
                     ),
                   ),
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.danger.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(_errorMessage!,
+                          style: TextStyle(color: AppColors.danger, fontSize: 12.5)),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.all(14),

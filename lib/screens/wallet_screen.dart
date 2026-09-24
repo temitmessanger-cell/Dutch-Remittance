@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:dutch_remit/hadwin_components.dart';
 import 'package:dutch_remit/screens/card_to_card_transfer_screen.dart';
 import 'package:dutch_remit/screens/create_virtual_card_screen.dart';
 import 'package:dutch_remit/screens/card_link_verification_screen.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
+import 'package:dutch_remit/services/offline_action_guard.dart';
+import 'package:dutch_remit/providers/user_login_state_provider.dart';
 
 class WalletScreen extends StatefulWidget {
   final Function setTab;
@@ -63,6 +66,7 @@ class _WalletScreenState extends State<WalletScreen> {
         body: SafeArea(
           child: CustomScrollView(
             slivers: [
+              const SliverToBoxAdapter(child: OfflineBanner()),
               SliverToBoxAdapter(
                 child: FutureBuilder<Map<String, dynamic>>(
                   future: _cardsFuture,
@@ -634,21 +638,38 @@ class _WalletScreenState extends State<WalletScreen> {
               }
 
               Navigator.of(sheetContext).pop();
+              final maskedCard = card['cardNumber']?.toString() ??
+                  card['mask']?.toString() ?? 'your card';
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(isFunding
-                      ? "Card funded with \$${amount.toStringAsFixed(2)}."
-                      : "\$${amount.toStringAsFixed(2)} withdrawn from your card."),
+                      ? "\$${amount.toStringAsFixed(2)} added to $maskedCard."
+                      : "\$${amount.toStringAsFixed(2)} withdrawn from $maskedCard."),
                   backgroundColor: AppColors.success,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
               );
-              // The wallet balance changed on the backend — refresh
-              // this screen's card list so the new balance is reflected
-              // rather than showing a stale number until the next
-              // manual refresh.
+              // Refresh card list (shows updated card balance) AND
+              // sync the main wallet balance — card fund debits the
+              // wallet, card withdraw credits it back. Both are already
+              // recorded in wallet_ledger by the backend; we just need
+              // the UI to read the new figure immediately.
               setState(() {
                 _cardsFuture = _initAndLoadCards();
               });
+              if (widget.userAuthKey != null) {
+                Provider.of<UserLoginStateProvider>(context, listen: false)
+                    .syncBalanceFromEversend(widget.userAuthKey);
+                // Second sync after 3s — card balance on Eversend's
+                // side may take a moment to settle after the API call.
+                Future.delayed(const Duration(seconds: 3), () {
+                  if (!mounted) return;
+                  Provider.of<UserLoginStateProvider>(context, listen: false)
+                      .syncBalanceFromEversend(widget.userAuthKey);
+                  setState(() { _cardsFuture = _initAndLoadCards(); });
+                });
+              }
             }
 
             return Padding(

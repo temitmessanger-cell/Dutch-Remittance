@@ -1,0 +1,8 @@
+<svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+  <rect width="48" height="48" rx="11" fill="#1546A0"/>
+  <rect x="3" y="3" width="42" height="42" rx="9" fill="white" fill-opacity="0.12"/>
+  <text x="24" y="31" text-anchor="middle" fill="white"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+    font-size="17" font-weight="800" letter-spacing="-1"
+  >DR</text>
+</svg>

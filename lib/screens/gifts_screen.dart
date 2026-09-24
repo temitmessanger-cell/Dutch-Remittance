@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:dutch_remit/services/offline_action_guard.dart';
 import 'package:dutch_remit/database/contacts_storage.dart';
 import 'package:dutch_remit/database/successful_transactions_storage.dart';
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
@@ -151,6 +152,7 @@ class _GiftsScreenState extends State<GiftsScreen> {
   }
 
   Future<void> _confirmGift() async {
+    if (!await OfflineActionGuard.check(context, action: 'Send Gift')) return;
     if (_isGuest) {
       _showCreateAccountPrompt();
       return;
@@ -205,8 +207,9 @@ class _GiftsScreenState extends State<GiftsScreen> {
 
     if (!mounted) return;
 
-    final quotationToken = quoteResult['data']?['token'] ?? quoteResult['token'];
-    if (quoteResult['error'] != null || quoteResult['apiRequestError'] != null || quotationToken == null) {
+    final quotationToken = quoteResult['data']?['data']?['token'] ??
+        quoteResult['data']?['token'] ?? quoteResult['token'];
+    if (quoteResult['error'] != null || quoteResult['apiRequestError'] != null) {
       setState(() {
         _isProcessing = false;
         _errorMessage = quoteResult['error']?.toString() ??
@@ -215,15 +218,18 @@ class _GiftsScreenState extends State<GiftsScreen> {
       });
       return;
     }
+    // token: null is expected for this Eversend account type.
+    // We proceed and let the backend strip it from the payout call.
 
     // Always show the rate before sending — per product requirement,
     // every send flow in the app should let the user see the rate
     // (or an honest "unavailable" if the quote came back without one)
     // before money moves, not just after. Previously this screen
     // quoted and sent in a single tap with no visible confirmation.
-    final quotation = quoteResult['data']?['quotation'] ?? quoteResult['quotation'];
+    final quotation = quoteResult['data']?['data']?['quotation'] ??
+        quoteResult['data']?['quotation'] ?? quoteResult['quotation'];
     final exchangeRate = quotation?['exchangeRate'];
-    final destinationAmount = quotation?['destinationAmount'];
+    final destinationAmount = quotation?['destinationAmount'] ?? quotation?['destAmount'];
 
     setState(() => _isProcessing = false);
 
@@ -343,6 +349,11 @@ class _GiftsScreenState extends State<GiftsScreen> {
     // if gifts are ever extended to support other source currencies.
     await Provider.of<UserLoginStateProvider>(context, listen: false)
         .syncBalanceFromEversend(widget.userAuthKey);
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      Provider.of<UserLoginStateProvider>(context, listen: false)
+          .syncBalanceFromEversend(widget.userAuthKey);
+    });
 
     setState(() => _isProcessing = false);
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:dutch_remit/services/offline_action_guard.dart';
 import 'package:dutch_remit/database/currency_conversion_service.dart';
 import 'package:dutch_remit/database/successful_transactions_storage.dart';
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
@@ -87,6 +88,10 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   double? _exchangeRate;
   double? _platformFeeAmount;
   Map<String, dynamic>? _lastQuote;
+  // The last error message from the quotation call (e.g. "Minimum amount
+  // should be XAF2000") — set by _fetchProviderFee, read by _fetchQuote
+  // to surface directly to the user instead of a silent blank.
+  String? _lastQuoteError;
   // Real, backend-confirmed payout methods for the current
   // destination — sourced from GET /api/v1/rates/corridor-methods,
   // the same corridors.js data every real payout decision in the
@@ -99,6 +104,10 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   // than an empty list, so the chips aren't incorrectly disabled
   // before the real methods are known.
   List<String>? _supportedMethods;
+  // Whether the selected corridor is individually confirmed live on
+  // Eversend's API. False = inferred from currency-sharing — shown
+  // with a "Coming Soon" tag at the bottom of the send flow.
+  bool _corridorLiveConfirmed = true;
   // Set when a quote preview fails specifically because this
   // destination currency needs a Klasha-backed bank account set up
   // first (see paymentRouter.js's getQuotation — this is a real,
@@ -255,6 +264,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     final methods = result['methods'];
     final resolved = methods is List ? methods.map((m) => m.toString()).toList() : <String>[];
     setState(() {
+      _corridorLiveConfirmed = result['liveConfirmed'] == true;
       _supportedMethods = resolved;
       // If the currently-selected method isn't actually supported for
       // this destination (e.g. Mobile money was selected, then the
@@ -311,13 +321,22 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
 
     setState(() {
       _isQuoting = false;
-      _convertedAmount = (quotation is Map && quotation['destAmount'] != null)
-          ? double.tryParse(quotation['destAmount'].toString())
+      _convertedAmount = (quotation is Map)
+          ? double.tryParse(
+              (quotation['destinationAmount'] ?? quotation['destAmount'] ?? '').toString())
           : null;
       _exchangeRate = (quotation is Map && quotation['exchangeRate'] != null)
           ? double.tryParse(quotation['exchangeRate'].toString())
           : null;
       _platformFeeAmount = fee;
+      // Surface Eversend's minimum-amount and corridor errors inline
+      // (e.g. "Minimum amount should be XAF2000") so users understand
+      // why the converted amount is blank — not a silent failure.
+      if (_convertedAmount == null && _lastQuoteError != null) {
+        _errorMessage = _lastQuoteError;
+      } else {
+        _errorMessage = null;
+      }
     });
   }
 
@@ -343,6 +362,11 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     );
     final hasError = response.containsKey('apiRequestError') || response['error'] != null;
     _lastQuote = hasError ? null : response;
+    _lastQuoteError = hasError
+        ? (response['error']?.toString() ??
+           response['message']?.toString() ??
+           'Could not get a rate for this amount.')
+        : null;
     _needsVirtualAccountCurrency = (hasError && response['needsVirtualAccount'] == true)
         ? response['virtualAccountCurrency']?.toString()
         : null;
@@ -432,6 +456,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   }
 
   Future<void> _confirmSend() async {
+    if (!await OfflineActionGuard.check(context, action: 'Send Money')) return;
     if (_isGuest) {
       _showCreateAccountPrompt();
       return;
@@ -480,11 +505,9 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
           "Wallet-to-wallet transfers aren't wired up on this screen yet — coming soon.");
       return;
     }
-    if (_quotationToken == null) {
-      setState(() => _errorMessage =
-          "Couldn't lock in a rate for this transfer — try refreshing the amount, or the sending wallet may not have enough balance to cover it yet.");
-      return;
-    }
+    // Eversend returns token: null on quotation responses for this
+    // account type — the payout endpoint accepts the transfer params
+    // directly without a pre-locked token. Do not block on null.
 
     setState(() {
       _isProcessing = true;
@@ -634,6 +657,11 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     // balance instead.
     await Provider.of<UserLoginStateProvider>(context, listen: false)
         .syncBalanceFromEversend(widget.userAuthKey);
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      Provider.of<UserLoginStateProvider>(context, listen: false)
+          .syncBalanceFromEversend(widget.userAuthKey);
+    });
 
     _hideProcessingOverlay();
     setState(() => _isProcessing = false);
@@ -1060,10 +1088,34 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
           Text(_errorMessage!, style: TextStyle(color: AppColors.danger, fontSize: 13)),
         ],
         const SizedBox(height: 22),
+        if (!_corridorLiveConfirmed) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            margin: const EdgeInsets.only(bottom: 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF8E1),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFFFCC02), width: 1),
+            ),
+            child: Row(
+              children: [
+                const Text('⏳', style: TextStyle(fontSize: 15)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'This corridor is coming soon — transfers to ${_destination.countryName} are not yet available.',
+                    style: TextStyle(fontSize: 12.5, color: const Color(0xFF7A5C00), fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: _isProcessing ? null : _confirmSend,
+            onPressed: (_isProcessing || !_corridorLiveConfirmed) ? null : _confirmSend,
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               elevation: 0,
@@ -1336,10 +1388,34 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
           Text(_errorMessage!, style: TextStyle(color: AppColors.danger, fontSize: 13)),
         ],
         const SizedBox(height: 22),
+        if (!_corridorLiveConfirmed) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            margin: const EdgeInsets.only(bottom: 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF8E1),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFFFCC02), width: 1),
+            ),
+            child: Row(
+              children: [
+                const Text('⏳', style: TextStyle(fontSize: 15)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'This corridor is coming soon — transfers to ${_destination.countryName} are not yet available.',
+                    style: TextStyle(fontSize: 12.5, color: const Color(0xFF7A5C00), fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: _isProcessing ? null : _confirmSend,
+            onPressed: (_isProcessing || !_corridorLiveConfirmed) ? null : _confirmSend,
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.success,
               elevation: 0,

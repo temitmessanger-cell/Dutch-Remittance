@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:dutch_remit/services/offline_action_guard.dart';
 import 'package:provider/provider.dart';
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
@@ -59,7 +60,15 @@ class _CardToCardTransferScreenState extends State<CardToCardTransferScreen> {
 
   String _maskedNumber(Map<String, dynamic>? card) {
     if (card == null) return 'No card';
-    return card['label']?.toString() ?? 'Card';
+    // cardNumber = normalized mask from Eversend card list
+    // mask       = raw Eversend field
+    // label      = set by GET /cards/mine for Supabase-sourced cards
+    final masked = card['cardNumber']?.toString() ??
+                   card['mask']?.toString() ??
+                   card['label']?.toString();
+    if (masked != null && masked.isNotEmpty) return masked;
+    final brand = card['cardBrand']?.toString() ?? card['brand']?.toString() ?? '';
+    return brand.isNotEmpty ? '$brand card' : 'Card';
   }
 
   Future<void> _pickRecipientUser() async {
@@ -79,6 +88,7 @@ class _CardToCardTransferScreenState extends State<CardToCardTransferScreen> {
   }
 
   Future<void> _sendTransfer() async {
+    if (!await OfflineActionGuard.check(context, action: 'Card Transfer')) return;
     if (_fromCard == null) return;
     final amount = double.tryParse(_amountController.text.trim());
     if (amount == null || amount <= 0) {
@@ -135,6 +145,11 @@ class _CardToCardTransferScreenState extends State<CardToCardTransferScreen> {
     // real-balance sync for consistency with every other send screen.
     await Provider.of<UserLoginStateProvider>(context, listen: false)
         .syncBalanceFromEversend(widget.userAuthKey);
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      Provider.of<UserLoginStateProvider>(context, listen: false)
+          .syncBalanceFromEversend(widget.userAuthKey);
+    });
 
     setState(() {
       _isSending = false;

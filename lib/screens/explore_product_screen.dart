@@ -354,7 +354,7 @@ class _BuildersApiRequestScreenState extends State<_BuildersApiRequestScreen> {
   }
 
   /// Opens the device's real mail app with a pre-filled message to
-  /// ikomihenry@dubiabank.com, carrying whatever the developer typed
+  /// support@dutchremit.com, carrying whatever the developer typed
   /// in. This is the actual submission — there's no backend endpoint
   /// for API-access requests, so a real mailto: deep link is the
   /// honest way to make "Request access" genuinely send something,
@@ -375,7 +375,7 @@ class _BuildersApiRequestScreenState extends State<_BuildersApiRequestScreen> {
     ];
     final body = Uri.encodeComponent(bodyLines.join('\n'));
 
-    launchExternalURL('mailto:ikomihenry@dubiabank.com?subject=$subject&body=$body');
+    launchExternalURL('mailto:support@dutchremit.com?subject=$subject&body=$body');
     setState(() => _submitted = true);
   }
 

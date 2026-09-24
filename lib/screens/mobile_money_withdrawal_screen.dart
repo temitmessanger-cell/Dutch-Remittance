@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:dutch_remit/services/offline_action_guard.dart';
 import 'package:dutch_remit/database/successful_transactions_storage.dart';
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
@@ -159,6 +160,7 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
   }
 
   Future<void> _confirmWithdrawal() async {
+    if (!await OfflineActionGuard.check(context, action: 'Withdrawal')) return;
     final phone = _fullPhoneNumber;
     if (phone.isEmpty || !phone.startsWith('+')) {
       setState(() => _errorMessage = "Enter the recipient's phone number.");
@@ -169,9 +171,8 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
       return;
     }
     if (_quotationToken == null) {
-      setState(() => _errorMessage =
-          "Couldn't lock in a rate for this transfer — try refreshing the quote, or the sending wallet may not have enough balance to cover it yet.");
-      return;
+      // Eversend returns token: null for this account type — proceed anyway.
+      // The backend strips null tokens before calling Eversend's payout endpoint.
     }
     if (_sourceAmountUsd == null) {
       setState(() => _errorMessage = "Couldn't confirm the USD cost of this transfer — try refreshing the quote.");
@@ -254,25 +255,40 @@ class _MobileMoneyWithdrawalScreenState extends State<MobileMoneyWithdrawalScree
     });
 
     if (!mounted) return;
-    // Real fix: widget.amount is in the destination currency (XAF for
-    // mobile money), not USD — debiting the local USD-tracked balance
-    // with that raw number would corrupt the displayed balance the
-    // same way the deposit screen's equivalent bug did. _sourceAmountUsd
-    // (computed from the real quotation) is the correct USD figure to
-    // debit locally; syncBalanceFromEversend then reconciles against
-    // the real Eversend balance right after, so this is a fast local
-    // update immediately followed by the authoritative real number.
     if (_sourceAmountUsd != null) {
       Provider.of<UserLoginStateProvider>(context, listen: false)
           .updateBankBalance('debit', _sourceAmountUsd!.toStringAsFixed(2));
     }
     await Provider.of<UserLoginStateProvider>(context, listen: false)
         .syncBalanceFromEversend(widget.userAuthKey);
-
-    setState(() {
-      _isSending = false;
-      _isDone = true;
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      Provider.of<UserLoginStateProvider>(context, listen: false)
+          .syncBalanceFromEversend(widget.userAuthKey);
     });
+
+    if (!mounted) return;
+    setState(() => _isSending = false);
+
+    final fee = result['feeBreakdown']?['totalFee'];
+    await showTransactionReceipt(
+      context,
+      title: 'Withdrawal sent',
+      amountLine:
+          '${widget.amount.toStringAsFixed(2)} ${_country.currencyCode} → ${_country.countryName}',
+      fields: [
+        ReceiptField('To', '${_nameController.text.trim()} · ${_country.countryName}'),
+        ReceiptField('Phone', phone),
+        ReceiptField('Amount', '${widget.amount.toStringAsFixed(2)} ${_country.currencyCode}'),
+        if (fee != null) ReceiptField('Fee', '$fee ${_country.currencyCode}'),
+        ReceiptField('Method', 'Mobile Money'),
+        ReceiptField('Date', now.toLocal().toString().split('.').first),
+      ],
+      reference: transactionRef,
+    );
+
+    if (!mounted) return;
+    setState(() => _isDone = true);
   }
 
   @override

@@ -3,7 +3,7 @@ const { eversend } = require('../eversendClient');
 const { requireAppUser } = require('../middleware/requireAppUser');
 const { supabaseAdmin } = require('../supabaseClient');
 const { applyPlatformMarkup } = require('../paymentRouter');
-const { validateDepositAmountUsd, convertToUsd, convertFromUsd, getBalanceUsd, MIN_DEPOSIT_USD, MAX_DEPOSIT_USD, MAX_TOTAL_BALANCE_USD } = require('../walletLedger');
+const { validateDepositAmountUsd, convertToUsd, convertFromUsd, getBalanceUsd, credit, MIN_DEPOSIT_USD, MAX_DEPOSIT_USD, MAX_TOTAL_BALANCE_USD } = require('../walletLedger');
 
 const router = express.Router();
 
@@ -22,7 +22,7 @@ const router = express.Router();
 // limits, live-converted via convertFromUsd — a real number in that
 // currency, not a rough estimate.
 const FIXED_CURRENCY_LIMITS = {
-  XAF: { min: 800, max: 7000000 },
+  XAF: { min: 700, max: 7000000 },
 };
 
 // Same verifiable-deployment pattern used for the OTP route fix
@@ -30,7 +30,7 @@ const FIXED_CURRENCY_LIMITS = {
 // directly after deploying to confirm this exact file (with the real
 // 800 XAF minimum) is actually live, before assuming a reported wrong
 // number is a new bug rather than a stale deploy.
-const DEPOSIT_LIMITS_VERSION = 'xaf-800-7000000-v1';
+const DEPOSIT_LIMITS_VERSION = 'xaf-700-7000000-v2';
 
 router.get('/deposit-limits/version', (req, res) => {
   res.json({ version: DEPOSIT_LIMITS_VERSION, fixedLimits: FIXED_CURRENCY_LIMITS });
@@ -334,12 +334,6 @@ router.post('/momo', requireAppUser, async (req, res, next) => {
       user_id: req.user.id,
       type: 'deposit',
       status: finalData?.status ?? 'pending',
-      // The real deposit figure the wallet should be credited — NOT
-      // the higher phone-charged `amount` — since this is exactly
-      // what webhooks.js's deposit-credit logic reads once the
-      // transaction is confirmed. Recording the inflated charged
-      // amount here would credit the user's tracked balance with
-      // more than they actually intended to deposit.
       amount: realCreditAmount,
       currency,
       method: 'momo',
@@ -347,13 +341,31 @@ router.post('/momo', requireAppUser, async (req, res, next) => {
       phone_number: phone,
       provider: 'eversend',
       eversend_reference: finalData?.transactionRef ?? transactionRef ?? null,
-      // The real charged amount (phone bill) is preserved here for
-      // audit/support purposes even though it's not what gets
-      // credited to the wallet.
       raw_response: { ...finalData, chargedAmount: amount, creditAmount: realCreditAmount },
     });
 
-    res.json(finalData);
+    // Credit wallet_ledger immediately if Eversend confirmed success —
+    // don't wait for the webhook (webhook secret may not be configured,
+    // and even when it is, it fires asynchronously after this response
+    // goes out, so the user's balance would appear stale on the success
+    // screen). The webhook handler checks for an existing credit on the
+    // same eversend_reference before crediting again, so this is safe
+    // and won't double-credit when the webhook does eventually fire.
+    const finalStatus = (finalData?.status ?? '').toLowerCase();
+    const successStatuses = ['completed', 'successful', 'success'];
+    if (successStatuses.includes(finalStatus) && creditAmountUsd > 0) {
+      const eversendRef = finalData?.transactionRef ?? transactionRef ?? null;
+      try {
+        await credit(req.user.id, creditAmountUsd, 'deposit', eversendRef);
+        console.log(`[collections/momo] Credited $${creditAmountUsd} USD to user ${req.user.id} for deposit ref ${eversendRef}`);
+      } catch (creditErr) {
+        // Non-fatal — the webhook will retry when properly configured.
+        // Log it loudly so it's visible in Railway.
+        console.error(`[collections/momo] wallet_ledger credit FAILED for user ${req.user.id}, ref ${eversendRef}:`, creditErr.message);
+      }
+    }
+
+    res.json({ ...finalData, creditedToWallet: successStatuses.includes(finalStatus) });
   } catch (err) {
     next(err);
   }

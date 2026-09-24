@@ -1,5 +1,6 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:dutch_remit/services/offline_action_guard.dart';
 import 'package:grouped_list/grouped_list.dart';
 
 import 'package:dutch_remit/components/fund_transfer_screen/transaction_receipt_screen.dart';
@@ -109,7 +110,7 @@ class AllTransactionActivitiesState extends State<AllTransactionActivities> {
   void getTransactionsFromApi() async {
     final response = await Future.wait([
       getData(
-          urlPath: "/Dutch Remit/v1/all-transactions", authKey: widget.userAuthKey),
+          urlPath: "/api/v1/transactions", authKey: widget.userAuthKey),
       SuccessfulTransactionsStorage().getSuccessfulTransactions()
     ]);
 
@@ -216,6 +217,7 @@ class AllTransactionActivitiesState extends State<AllTransactionActivities> {
         ),
         extendBodyBehindAppBar: true,
         body: Column(children: <Widget>[
+          const OfflineBanner(),
           SizedBox(
             height: 96,
           ),
@@ -681,15 +683,18 @@ class AllTransactionActivitiesState extends State<AllTransactionActivities> {
     Map<String, dynamic> transactionReceipt = {};
     transactionReceipt.addAll(transaction);
     if (!transactionReceipt.containsKey('transactionInitiatorName')) {
+      final bankDetails = widget.user['bankDetails'];
+      final bankName = (bankDetails is List && bankDetails.isNotEmpty)
+          ? bankDetails[0]['bankName']?.toString() ?? ''
+          : '';
       transactionReceipt.addAll({
         'transactionInitiatorName':
-            widget.user['first_name'] + " " + widget.user['last_name'],
-        'transactionInitiatorPhoneNumber': widget.user['phone_number'],
-        'transactionInitiatorEmail': widget.user['email'],
-        'transactionInitiatorBankName': widget.user['bankDetails'][0]
-            ['bankName'],
-        'transactionInitiatorUid': widget.user['uid'],
-        'transactionInitiatorWalletAddress': widget.user['walletAddress']
+            '${widget.user['first_name'] ?? ''} ${widget.user['last_name'] ?? ''}'.trim(),
+        'transactionInitiatorPhoneNumber': widget.user['phone_number'] ?? '',
+        'transactionInitiatorEmail': widget.user['email'] ?? '',
+        'transactionInitiatorBankName': bankName,
+        'transactionInitiatorUid': widget.user['uid'] ?? widget.user['id'] ?? '',
+        'transactionInitiatorWalletAddress': widget.user['walletAddress'] ?? '',
       });
     }
     Navigator.push(

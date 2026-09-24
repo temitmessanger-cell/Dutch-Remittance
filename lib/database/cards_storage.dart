@@ -45,11 +45,18 @@ class CardsStorage {
     _userAuthKey = userAuthKey;
     try {
       final Map<String, dynamic> availableCards = await getData(
-          urlPath: "/Dutch Remit/v1/available-cards", authKey: userAuthKey);
+          urlPath: "/api/v1/cards", authKey: userAuthKey);
       if (availableCards.keys.join().toLowerCase().contains("error")) {
         return false;
       }
-      _cards = List<dynamic>.from(availableCards['availableCards'] ?? <dynamic>[]);
+      // Eversend returns { data: { cards: [...] } }
+      final cardList = availableCards['data']?['cards'] ??
+          availableCards['cards'] ??
+          availableCards['availableCards'] ??
+          <dynamic>[];
+      _cards = List<dynamic>.from(cardList);
+      return true;
+    } catch (_) {
       return true;
     } catch (_) {
       return false;

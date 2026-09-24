@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:dutch_remit/services/offline_action_guard.dart';
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
 import 'package:dutch_remit/utilities/make_api_request.dart';
+import 'package:dutch_remit/components/shared/transaction_receipt_dialog.dart';
 
 /// The home screen's "Swap" feature: convert a balance the user
 /// already holds from one currency to another, entirely within their
@@ -69,7 +71,7 @@ class _CurrencySwapScreenState extends State<CurrencySwapScreen> {
     if (data is Map && data['data'] is Map) {
       final quotation = (data['data'] as Map)['quotation'];
       if (quotation is Map) {
-        final v = quotation['destAmount'];
+        final v = quotation['destAmount'] ?? quotation['destinationAmount'];
         return v == null ? null : double.tryParse(v.toString());
       }
     }
@@ -132,16 +134,17 @@ class _CurrencySwapScreenState extends State<CurrencySwapScreen> {
   }
 
   Future<void> _confirmSwap() async {
+    if (!await OfflineActionGuard.check(context, action: 'Currency Swap')) return;
     if (_isGuest) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Create an account to swap currencies.")),
       );
       return;
     }
-    if (_quotationToken == null) {
-      setState(() => _errorMessage = "Get a quote first.");
-      return;
-    }
+    // Note: Eversend's exchange quotation currently returns token: null
+    // for this account type. We attempt the swap anyway — if Eversend
+    // rejects it, the error is surfaced clearly below rather than
+    // blocking silently here. Flag with Eversend support if swaps fail.
 
     setState(() {
       _isSwapping = true;
@@ -150,7 +153,12 @@ class _CurrencySwapScreenState extends State<CurrencySwapScreen> {
 
     final result = await sendData(
       urlPath: "/api/v1/rates/exchange",
-      data: {"token": _quotationToken},
+      data: {
+        "token": _quotationToken,
+        "from": _fromCurrency,
+        "to": _toCurrency,
+        "amount": double.tryParse(_amountController.text.trim()) ?? 0,
+      },
       authKey: widget.userAuthKey,
     );
 
@@ -172,33 +180,32 @@ class _CurrencySwapScreenState extends State<CurrencySwapScreen> {
     // real-money screen in the app.
     await Provider.of<UserLoginStateProvider>(context, listen: false)
         .syncBalanceFromEversend(widget.userAuthKey);
+    Future.delayed(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      Provider.of<UserLoginStateProvider>(context, listen: false)
+          .syncBalanceFromEversend(widget.userAuthKey);
+    });
 
     if (!mounted) return;
     setState(() => _isSwapping = false);
 
-    await showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.lg)),
-        title: Text("Swap complete", style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink)),
-        content: Text(
-          "${_amountController.text.trim()} $_fromCurrency swapped to ${_destAmount?.toStringAsFixed(2) ?? '—'} $_toCurrency.",
-          style: TextStyle(color: AppColors.inkMuted, height: 1.4),
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.sm)),
-            ),
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text("Done"),
-          ),
-        ],
-      ),
+    final now = DateTime.now();
+    final ref = result['data']?['reference']?.toString() ??
+        result['data']?['transactionRef']?.toString() ??
+        'DR-SWAP-${now.millisecondsSinceEpoch}';
+    final fee = result['feeBreakdown']?['totalFee'];
+
+    await showTransactionReceipt(
+      context,
+      title: 'Swap complete',
+      amountLine: '${_destAmount?.toStringAsFixed(2) ?? '—'} $_toCurrency',
+      fields: [
+        ReceiptField('You swapped', '${_amountController.text.trim()} $_fromCurrency'),
+        ReceiptField('You received', '${_destAmount?.toStringAsFixed(2) ?? '—'} $_toCurrency'),
+        if (fee != null) ReceiptField('Fee', '$fee $_fromCurrency'),
+        ReceiptField('Date', now.toLocal().toString().split('.').first),
+      ],
+      reference: ref,
     );
     if (mounted) Navigator.of(context).pop(true);
   }
@@ -367,7 +374,7 @@ class _CurrencySwapScreenState extends State<CurrencySwapScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: (_isSwapping || _quotationToken == null) ? null : _confirmSwap,
+                onPressed: _isSwapping ? null : _confirmSwap,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   elevation: 0,

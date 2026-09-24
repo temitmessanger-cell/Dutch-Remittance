@@ -1,0 +1,3 @@
+# SPA fallback — all routes → index.html so Flutter handles them
+# Required for offline deep-link support
+/* /index.html 200

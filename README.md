@@ -1,200 +1,301 @@
-# Deploying Dutch Remit to dutchremit.dubiabank.com on Netlify
+# Dutch Remit — Production Codebase
 
-## Why drag-and-drop deploy can't make Plaid work
+> Cross-border remittance platform. Send money to 32 countries across Africa, Europe and the US.
 
-If you've been deploying by dragging the `build/web` folder into the
-Netlify dashboard: that method only ever uploads static files. It has no
-build step, so it can't read `netlify.toml`, can't see the
-`netlify/functions/` folder, and can't run `npm install` for the
-functions' dependencies. There's no configuration that changes this —
-it's a hard limit of how that deploy method works, not a setup mistake.
+---
 
-**The fix is one terminal command, not a rebuild of anything.** All the
-files are already correct and in place:
+## Architecture
+
+| Layer | Technology |
+|---|---|
+| Mobile app | Flutter (Dart) |
+| Backend | Node.js / Express — hosted on Railway |
+| Database / Auth | Supabase (Postgres + Row Level Security) |
+| Payment rails | Eversend (primary — all live corridors) |
+| Per-user ledger | `wallet_ledger` table in Supabase |
+
+---
+
+## Live Eversend Corridors (32 countries — confirmed 2026-09)
+
+**Africa (MoMo + Bank):** CM · GH · KE · NG · UG  
+**Africa (MoMo only):** RW · TZ · ZM · SN · CI  
+**Europe (Bank/SEPA):** AT · BE · CY · DE · EE · FI · FR · GB · GR · HR · IE · IT · LT · LU · LV · MT · NL · PT · SI · SK  
+**Americas:** US  
+**Wallet-only:** ZA
+
+---
+
+## Backend
+
+### Setup
 
 ```bash
-npm install -g netlify-cli   # one-time, if you don't have it yet
-cd /path/to/this/project
-npm install                  # installs the functions' dependencies
-netlify login                # one-time, opens a browser to authenticate
-netlify link                 # connects this folder to your existing dutchremit.dubiabank.com site
-flutter build web             # builds the Flutter app as usual
-netlify deploy --prod        # uploads BOTH the site and the functions together
-```
-
-After `netlify deploy --prod` finishes, `/api/plaid/health` will return
-real JSON instead of a 404, and every Plaid feature will work — nothing
-in the code needs to change for this. You only need to run this sequence
-once to switch over; after that, every future `netlify deploy --prod` (or
-connecting a Git repo so it deploys automatically — see below) carries
-the functions along automatically.
-
----
-
-This project has two parts that deploy together as one Netlify site:
-
-1. **The Flutter web app** — static files, built with `flutter build web`.
-2. **The Plaid backend** — `netlify/functions/*.js`, deployed as Netlify
-   Functions. This is the only place your Plaid `client_id`/`secret` ever
-   exist; the Flutter app never sees them.
-
-Both ship from the same repo, same deploy, same domain. No separate server
-to host or pay for.
-
----
-
-## 1. One-time setup: Upstash Redis (free)
-
-The functions need somewhere to remember which bank account is linked to
-which user between requests (Netlify Functions don't keep anything in
-memory between calls, so this can't just live in a variable).
-
-1. Go to console.upstash.com, sign up free.
-2. Create a Redis database (any region close to where most users will be —
-   us-east-1 is a safe default).
-3. On the database's page, open the REST API tab and copy:
-   - UPSTASH_REDIS_REST_URL
-   - UPSTASH_REDIS_REST_TOKEN
-
-Free tier covers this comfortably: 500,000 commands/month, 256 MB storage.
-
-## 2. One-time setup: Netlify environment variables
-
-In your Netlify site -> Site configuration -> Environment variables, add:
-
-| Key | Value |
-|---|---|
-| PLAID_CLIENT_ID | your Plaid client ID |
-| PLAID_SECRET | your Sandbox secret (swap for production secret later) |
-| PLAID_ENV | sandbox |
-| UPSTASH_REDIS_REST_URL | from step 1 |
-| UPSTASH_REDIS_REST_TOKEN | from step 1 |
-| ALLOWED_ORIGIN | https://dutchremit.dubiabank.com |
-
-See .env.example for the same list with comments.
-
-## 3. Connect your domain
-
-In Netlify -> Domain management, add dutchremit.dubiabank.com as a
-custom domain. Since this is a subdomain, you'll add a CNAME record at
-whoever manages DNS for dubiabank.com, pointing
-dutchremit.dubiabank.com -> the *.netlify.app address Netlify gives you.
-Netlify provisions HTTPS for it automatically once DNS resolves.
-
-## 4. Build the Flutter web app
-
-Locally (or in CI before pushing):
-
-```
-flutter pub get
-flutter build web
-```
-
-This produces build/web/ — exactly what netlify.toml's
-publish = "build/web" expects. Commit the source, not the build
-output — Netlify rebuilds it fresh each deploy.
-
-If you want Netlify itself to run flutter build web (so you never
-build locally), you'd need a build image with the Flutter SDK available,
-which Netlify's default Node image doesn't have. The simplest reliable
-setup is: build Flutter locally or in a separate CI step (e.g. a GitHub
-Action using subosito/flutter-action), then let Netlify just publish
-the resulting build/web folder and deploy the functions. This is what
-the current netlify.toml assumes.
-
-## 5. Install function dependencies and deploy
-
-```
+cd Backend
 npm install
-git push
+cp .env.example .env   # fill in all secrets
+npm start
 ```
 
-(if connected to Netlify via Git, this triggers the deploy)
-
-Or with the Netlify CLI directly:
+### Required environment variables
 
 ```
-npm install -g netlify-cli
-netlify deploy --prod
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+EVERSEND_CLIENT_ID=
+EVERSEND_CLIENT_SECRET=
+EVERSEND_WEBHOOK_SECRET=     # from Eversend dashboard → Settings → Webhook
+JWT_SECRET=
+PORT=3000
 ```
 
-## 6. Verify it's wired up correctly
+### Routes
 
-Once deployed:
+| Prefix | File | Purpose |
+|---|---|---|
+| `/api/v1/auth` | `routes/auth.js` | Login, OTP, register, session restore |
+| `/api/v1/collections` | `routes/collections.js` | Deposit (MoMo). Min XAF 700. Immediate wallet credit on success. |
+| `/api/v1/payouts` | `routes/payouts.js` | Send abroad — all Eversend corridors |
+| `/api/v1/rates` | `routes/rates.js` | Quotation, corridor-methods, currency swap |
+| `/api/v1/wallets` | `routes/wallets.js` | Per-user balance (`wallet_ledger`) |
+| `/api/v1/cards` | `routes/cards.js` | Virtual cards — full lifecycle |
+| `/api/v1/transactions` | `routes/transactions.js` | History (Supabase, normalized for Flutter) |
+| `/api/v1/rewards` | `routes/rewards.js` | Social tasks + points (20pts = free card + $3) |
+| `/api/v1/webhooks` | `routes/webhooks.js` | Eversend event processing (idempotent) |
+| `/robots.txt`, `/sitemap.xml` | `routes/seo.js` | SEO + social handles |
 
+### Supabase — run once
+
+```sql
+-- Core schema
+supabase/schema.sql
+
+-- Rewards tables (run after schema)
+supabase_rewards_migration.sql
 ```
-curl https://dutchremit.dubiabank.com/api/plaid/health
-# {"ok":true,"environment":"sandbox"}
-```
-
-If that works, the redirects, functions, and environment variables are all
-correctly connected. Then open the app itself and try Card -> Connect a
-bank — it should open the real Plaid Link popup.
 
 ---
 
-## Developing locally before deploying
-
-Use the Netlify CLI's `netlify dev` — it runs your functions locally
-and proxies redirects exactly like production, so you're testing the
-real /api/plaid/* paths, not a different local setup:
+## Wallet balance architecture
 
 ```
-npm install -g netlify-cli
-netlify dev
+User deposits XAF via MoMo
+    → Eversend confirms (polling in /collections/momo)
+    → wallet_ledger immediately credited (no webhook dependency)
+    → Flutter calls syncBalanceFromEversend() → reads /wallets/my-balance
+    → Flutter delayed re-sync after 4s (safety net)
+
+User sends money
+    → payouts/send debits wallet_ledger
+    → Flutter syncs immediately + delayed 5s re-sync
+
+User funds a card
+    → cards/fund calls debitIfSufficient (debits wallet_ledger)
+    → Flutter refreshes card list + syncs main balance immediately + 3s delayed re-sync
+
+User withdraws from card
+    → cards/withdraw credits wallet_ledger
+    → Flutter refreshes card list + syncs main balance immediately + 3s delayed re-sync
 ```
 
-This serves everything at http://localhost:8888. While doing this,
-temporarily point PlaidApiConstants.baseUrl (in
-lib/resources/plaid_api_constants.dart) at http://localhost:8888,
-then switch it back to the production domain before deploying.
-
-You'll also need a local .env file (gitignored) with the same variables
-as the Netlify dashboard for netlify dev to pick up — see .env.example.
+**Never use** `GET /api/v1/wallets` for user balance display — this is the **business Eversend account**, shared across all users. Always use `GET /api/v1/wallets/my-balance`.
 
 ---
 
-## Going live later (Sandbox -> Production)
+## Rewards / Social Tasks
 
-Two environment variable changes, in the Netlify dashboard:
+20 points = free virtual card + $3 top-up
+
+| Platform | Action | Points | Type |
+|---|---|---|---|
+| YouTube `@Dutch.Inc.Platforms` | Subscribe | 1 | One-time |
+| Instagram `@dutchincplatforms` | Follow | 1 | One-time |
+| TikTok `@dutch.inc.platforms` | Follow | 1 | One-time |
+| YouTube / Instagram / TikTok | Like | 1 each | Daily |
+| YouTube / Instagram / TikTok | Comment | 1 each | Daily |
+| YouTube / Instagram / TikTok | Share | 1 each | Daily |
+
+---
+
+## Known open items (pre-launch)
+
+1. **Top up Eversend business account** — currently at -$0.59 USD. All payouts will fail until funded.
+2. **Set `EVERSEND_WEBHOOK_SECRET`** in Railway from Eversend dashboard → Settings → Webhook.
+3. **Currency swap token** — Eversend returns `token: null` on exchange quotations for this account type. Swap falls back to direct-param execution. Confirm with Eversend account manager.
+4. **Payout execution** — deferred pending Eversend account funding. Quotations confirmed live on all 32 corridors.
+
+---
+
+## Flutter app
+
+```bash
+flutter pub get
+flutter run
+```
+
+### Key screens
+
+| Screen | Purpose |
+|---|---|
+| `africa_corridor_screen` | Diaspora→Africa + Africa→Africa MoMo/bank |
+| `global_bank_transfer_screen` | Europe + US bank transfer |
+| `mobile_money_deposit_screen` | XAF/MoMo deposit (min 700 XAF) |
+| `mobile_money_withdrawal_screen` | MoMo withdrawal |
+| `currency_swap_screen` | Wallet currency swap |
+| `wallet_screen` | Virtual card management |
+| `create_virtual_card_screen` | New card + KYC |
+| `rewards_hub_screen` | Social tasks + points redemption |
+| `all_transaction_activities_screen` | Transaction history |
+
+### Balance sync pattern (all money-moving screens)
+
+```dart
+// Immediate sync
+await Provider.of<UserLoginStateProvider>(context, listen: false)
+    .syncBalanceFromEversend(widget.userAuthKey);
+
+// Delayed safety net (3–5 seconds depending on operation speed)
+Future.delayed(const Duration(seconds: 5), () {
+  if (!mounted) return;
+  Provider.of<UserLoginStateProvider>(context, listen: false)
+      .syncBalanceFromEversend(widget.userAuthKey);
+});
+```
+
+---
+
+## Social / SEO
+
+- YouTube: https://www.youtube.com/@Dutch.Inc.Platforms
+- Instagram: https://www.instagram.com/dutchincplatforms
+- TikTok: https://www.tiktok.com/@dutch.inc.platforms
+- Sitemap: `GET /sitemap.xml`
+- Structured data: `GET /structured-data.json`
+
+---
+
+## PWA — Progressive Web App
+
+Dutch Remit ships as a full offline-first PWA alongside the native mobile app.
+
+### What's offline-capable
+
+| Feature | Online | Offline |
+|---|---|---|
+| App shell, navigation, all UI | ✅ | ✅ |
+| Balance display | Live | Last cached value + "You're offline" banner |
+| Transaction history | Live | Last cached list |
+| Card list | Live | Last cached list |
+| Exchange rate quotes | Live | Blocked with clear message |
+| Send money / Deposit / Swap | Live | Blocked — OfflineActionGuard |
+| Corridor / country data | Live | Cached 24h |
+| Bank lists | Live | Cached 12h |
+
+### First-launch experience
+
+1. User opens the PWA for the first time
+2. `OfflineSetupScreen` appears: *"Downloading files to enable offline use"*
+3. Service worker caches all Flutter assets (~15–25 MB) with a real progress bar
+4. Heavy assets (WASM, CanvasKit) download silently after 100% is shown
+5. `shared_preferences` flag `offline_setup_complete = true` is saved
+6. User goes directly to login — never sees setup screen again
+
+### PWA vs Browser vs Native
+
+| Context | Behaviour |
+|---|---|
+| Native iOS/Android | Unchanged — existing onboarding flow |
+| PWA (installed, standalone) | Skips onboarding → Login directly. No URL bar. Offline setup on first launch. |
+| Browser (not installed) | App shown with "Install Dutch Remit" banner at bottom. No intro pages. |
+
+Detection is via `window.matchMedia('(display-mode: standalone)')` + `navigator.standalone` (iOS).
+
+### Build
+
+```bash
+# From project root
+chmod +x build_web.sh
+./build_web.sh
+
+# This runs:
+# 1. flutter pub get
+# 2. flutter build web --release --web-renderer canvaskit
+# 3. Copies build/web → Backend/public/
+# 4. Copies custom sw.js (overrides Flutter's generated one)
+```
+
+### Caching strategy
+
+| Resource | Strategy | Cache duration |
+|---|---|---|
+| `index.html`, `sw.js`, `manifest.json` | No-cache | Always fresh |
+| `main.dart.js`, `*.wasm`, fonts, assets | Cache-First | Permanent (content-hashed) |
+| Balance, transactions, cards (API reads) | Network-First → stale | 10 min stale TTL |
+| Send, deposit, swap (financial writes) | Network-Only | Never cached |
+
+### Deployment targets
+
+**Railway** (current backend):
+- Uses `railway.json` — builds Flutter web then starts Express
+- Flutter web output served from `Backend/public/`
+- `FLUTTER_WEB_PATH` env var overrides the public path
+
+**Netlify** (frontend only):
+- `web/_headers` sets correct cache headers
+- `web/_redirects` handles SPA routing
+
+**Vercel** (frontend only):
+- `vercel.json` in project root
+
+### Offline guard pattern
+
+Every financial action is wrapped:
+```dart
+Future<void> _confirmSend() async {
+  if (!await OfflineActionGuard.check(context, action: 'Send Money')) return;
+  // ... proceed
+}
+```
+
+Shows a bottom sheet: *"You're offline — Send Money requires an internet connection"* with a "Wait for connection" option that auto-proceeds when reconnected.
+
+### File structure
 
 ```
-PLAID_ENV: sandbox -> production
-PLAID_SECRET: <sandbox secret> -> <production secret>
+web/
+├── index.html          # PWA entry, SW registration, A2HS prompt
+├── manifest.json       # PWA manifest (standalone, theme, icons)
+├── sw.js               # Custom service worker (cache-first + progress)
+├── offline.html        # Fallback page when truly offline first launch
+├── _headers            # Netlify cache headers
+├── _redirects          # Netlify SPA fallback
+└── icons/
+    ├── Icon-48.png
+    ├── Icon-96.png
+    ├── Icon-192.png
+    └── Icon-512.png
+
+lib/
+├── screens/
+│   ├── offline_setup_screen.dart   # One-time first-launch download screen
+│   └── pwa_bootstrap.dart          # PWA/browser/native routing
+├── services/
+│   ├── connectivity_service.dart   # Network monitoring (connectivity_plus)
+│   ├── offline_action_guard.dart   # Blocks financial actions when offline
+│   ├── offline_cache.dart          # Hive-backed API response cache
+│   ├── offline_setup_bridge.dart   # SW progress → Flutter stream
+│   └── offline_storage.dart        # Offline-aware data fetcher facade
+├── methods/
+│   └── download_helper.dart        # Progress % / bytes / ETA helpers
+└── utilities/
+    ├── pwa_detection.dart          # Conditional import facade
+    └── platform/
+        ├── pwa_detection_stub.dart # Mobile/desktop stub
+        └── pwa_detection_web.dart  # Real web implementation (dart:html)
 ```
 
-Redeploy after saving the env vars. Nothing in netlify/functions/*.js
-or anywhere in the Flutter app needs to change.
+---
 
-Before flipping that switch for real users:
-1. Apply for Plaid Production access (takes a few days for review).
-2. Apply for the Transfer product specifically if you want real
-   bank-to-bank transfers, not just linking/balances — separate approval
-   from basic Production access.
-3. The Upstash Redis store is genuinely production-capable as-is (it's a
-   real managed database, not a demo shortcut) — but DEMO_RECIPIENTS in
-   netlify/functions/_shared/db.js is a hardcoded fake user list and
-   should be swapped for a real lookup against your actual users.
+## Support
 
-## What's simulated vs. what's real
-
-Real, actually talking to Plaid:
-- The bank picker popup (Plaid Link) — real institution list, real
-  Sandbox login flow.
-- Account linking, balances, transaction history — genuine Plaid Sandbox
-  data.
-- Transfer authorization/creation — real Plaid Transfer API calls, if
-  Transfer is enabled on your account.
-
-Simulated, because this is how Plaid's own Sandbox behaves:
-- A created transfer sits at "pending" until you call the simulate
-  endpoint — that's Plaid Sandbox's documented behavior, not a shortcut.
-- The "inject a live transaction" feature uses Plaid's own
-  /sandbox/transactions/create test endpoint.
-
-## If a function returns a CORS error
-
-Check that ALLOWED_ORIGIN in your environment variables exactly matches
-the origin the app is served from (https://dutchremit.dubiabank.com, no
-trailing slash). A mismatch here is the most common reason a browser
-blocks the request while curl (which ignores CORS) works fine.
+Email: support@dutchremit.com

@@ -130,7 +130,7 @@ class _AllContactsScreenState extends State<AllContactsScreen> {
     return FutureBuilder<List<dynamic>>(
       future: Future.wait([
         getData(
-            urlPath: "/Dutch Remit/v1/all-transactions",
+            urlPath: "/api/v1/transactions",
             authKey: widget.userAuthKey),
         SuccessfulTransactionsStorage().getSuccessfulTransactions()
       ]),

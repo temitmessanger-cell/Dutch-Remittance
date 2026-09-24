@@ -3,7 +3,7 @@ import 'package:dutch_remit/utilities/app_theme.dart';
 import 'package:dutch_remit/utilities/url_external_launcher.dart';
 import 'package:dutch_remit/utilities/receipt_downloader.dart';
 
-const String kSupportEmail = 'ikomihenry@dubiabank.com';
+const String kSupportEmail = 'support@dutchremit.com';
 const String kSupportWhatsAppNumber = '+12897912474';
 const String kSupportWhatsAppUrl = 'https://wa.me/12897912474';
 const String kSupportPhoneUrl = 'tel:+12897912474';

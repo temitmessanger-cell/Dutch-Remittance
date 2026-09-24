@@ -40,11 +40,6 @@ class MyQRCodeScreen extends StatelessWidget {
               style: GoogleFonts.poppins(fontSize: 18),
               textAlign: TextAlign.center,
             ),
-            Text(
-              "( Dutch Remit is a prototype \nyou cannot send\nor receive real money )",
-              style: GoogleFonts.poppins(fontSize: 15),
-              textAlign: TextAlign.center,
-            ),
             SizedBox(
               height: 64,
             ),

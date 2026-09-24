@@ -391,8 +391,23 @@ router.post('/', requireAppUser, async (req, res, next) => {
 
 router.get('/', requireAppUser, async (req, res, next) => {
   try {
-    const data = await eversend.get('/cards');
-    res.json(data);
+    const raw = await eversend.get('/cards');
+    const cards = (raw?.data?.cards ?? []).map(c => {
+      // Never send the full PAN to the client — only the masked number.
+      // Flutter reads cardBrand and cardNumber; Eversend returns brand and mask.
+      const { number, securityCode, ...safe } = c;
+      return {
+        ...safe,
+        cardId:     c.id     ?? null,
+        cardBrand:  c.brand  ?? null,
+        cardNumber: c.mask   ?? null,   // masked: "428852******5731"
+        // Only expose CVV to the card detail screen via a separate
+        // authenticated endpoint — never in the list response.
+      };
+    });
+    // Filter out cards with status "failed" so they never render in UI.
+    const usable = cards.filter(c => (c.status ?? '').toLowerCase() !== 'failed');
+    res.json({ ...raw, data: { ...(raw?.data ?? {}), cards: usable } });
   } catch (err) {
     next(err);
   }
@@ -444,7 +459,12 @@ router.post('/instant', requireAppUser, async (req, res, next) => {
       const firstName = profile?.first_name || 'Dutch';
       const lastName = profile?.last_name || 'Remit';
       const email = profile?.email || `user-${req.user.id}@dutchremit.dubiabank.com`;
-      const phone = profile?.phone_number || '+237600000000';
+      const phone = profile?.phone_number;
+      if (!phone) {
+        return res.status(400).json({
+          error: 'A verified phone number is required to create a card. Please add one in your profile first.',
+        });
+      }
 
       const cardholderBody = {
         firstName,

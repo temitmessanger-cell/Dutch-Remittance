@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:dutch_remit/services/offline_action_guard.dart';
 import 'package:provider/provider.dart';
 import 'package:dutch_remit/database/successful_transactions_storage.dart';
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
@@ -306,6 +307,7 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
   }
 
   Future<void> _confirmDeposit() async {
+    if (!await OfflineActionGuard.check(context, action: 'Deposit')) return;
     final pin = _otpControllers.map((c) => c.text).join();
     if (pin.length < 6) {
       setState(() => _errorMessage = "Enter the full 6-digit code.");
@@ -419,6 +421,10 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
     // syncBalanceFromEversend() already does elsewhere in the app, and
     // is the only way to get the correct number without duplicating a
     // currency-conversion call here.
+    // Refresh balance immediately, then again after 4s.
+    // The immediate call picks up credits already applied by
+    // collections/momo. The delayed call catches any edge case
+    // where the credit took a moment to land in wallet_ledger.
     await Provider.of<UserLoginStateProvider>(context, listen: false)
         .syncBalanceFromEversend(widget.userAuthKey);
 
@@ -426,6 +432,13 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
     setState(() {
       _isConfirming = false;
       _step = _DepositStep.success;
+    });
+
+    // Second refresh after 4 seconds in the background
+    Future.delayed(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      Provider.of<UserLoginStateProvider>(context, listen: false)
+          .syncBalanceFromEversend(widget.userAuthKey);
     });
   }
 

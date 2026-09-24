@@ -8,6 +8,7 @@ import 'package:dutch_remit/screens/enter_code_manually_screen.dart';
 import 'package:dutch_remit/screens/top_up_screen.dart';
 import 'package:dutch_remit/screens/withdraw_screen.dart';
 import 'package:dutch_remit/screens/virtual_accounts_screen.dart';
+import 'package:dutch_remit/services/offline_action_guard.dart';
 import 'package:dutch_remit/screens/crypto_screen.dart';
 import 'package:dutch_remit/screens/currency_swap_screen.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
@@ -339,6 +340,8 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen>
         body: SafeArea(
           child: Column(
             children: [
+              // Offline indicator — shown automatically when no network
+              const OfflineBanner(),
               // Header section: top bar, balance card, quick actions.
               // This scrolls along with the page on small screens, but
               // unlike before, it no longer competes with Contacts and

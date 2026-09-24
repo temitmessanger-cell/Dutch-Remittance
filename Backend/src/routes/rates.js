@@ -29,7 +29,12 @@ router.get('/corridor-methods/:countryCode', async (req, res) => {
   if (!entry) {
     return res.json({ countryCode: code, methods: [], note: 'Not a confirmed payout corridor.' });
   }
-  res.json({ countryCode: code, currency: entry.currency, methods: entry.methods });
+  res.json({
+    countryCode: code,
+    currency: entry.currency,
+    methods: entry.methods,
+    liveConfirmed: entry.liveConfirmed === true,
+  });
 });
 
 // A wallet-to-wallet exchange doesn't carry an explicit "fee" field
@@ -132,12 +137,22 @@ router.post('/exchange-quotation', async (req, res, next) => {
 // below is the audit record of that.
 router.post('/exchange', requireAppUser, async (req, res, next) => {
   try {
-    const { token } = req.body || {};
-    if (!token) {
-      return res.status(400).json({ error: 'token is required — call POST /rates/exchange-quotation first.' });
-    }
+    const { token, from, to, amount } = req.body || {};
 
-    const data = await eversend.post('/exchanges', { token });
+    // Eversend returns token: null on exchange quotations for this account
+    // type. Try with the token if present; fall back to direct params.
+    let data;
+    if (token) {
+      data = await eversend.post('/exchanges', { token });
+    } else if (from && to && amount) {
+      // Attempt direct execution without a pre-locked token.
+      // If Eversend rejects this, the error propagates to the caller.
+      data = await eversend.post('/exchanges', { from, to, amount });
+    } else {
+      return res.status(400).json({
+        error: 'Currency swap is temporarily unavailable — please try again shortly or contact support.',
+      });
+    }
 
     await supabaseAdmin.from('transactions').insert({
       user_id: req.user.id,

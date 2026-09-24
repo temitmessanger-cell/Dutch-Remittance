@@ -1,5 +1,5 @@
 name: dutch_remit
-description: A prototype/demo version of a fund transfer app/platform.
+description: Dutch Remit — Send money to 32 countries across Africa, Europe and the US.
 
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -56,6 +56,9 @@ dependencies:
   hive_flutter: ^1.1.0
   plaid_flutter: 3.1.1
   image_picker: ^1.1.2
+  shared_preferences: ^2.2.3
+  js: ^0.6.7
+  connectivity_plus: ^6.0.3
 
 dev_dependencies:
   flutter_test:

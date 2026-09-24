@@ -8,6 +8,10 @@ import 'package:dutch_remit/utilities/app_theme.dart';
 import 'package:dutch_remit/components/main_app_screen/local_splash_screen_component.dart';
 
 import 'package:dutch_remit/screens/onboarding_screen.dart';
+import 'package:dutch_remit/screens/login_screen.dart';
+import 'package:dutch_remit/screens/pwa_bootstrap.dart';
+import 'package:dutch_remit/services/connectivity_service.dart';
+import 'package:dutch_remit/services/offline_cache.dart';
 import 'package:dutch_remit/database/cards_storage.dart';
 import 'package:dutch_remit/database/currency_conversion_service.dart';
 import 'package:dutch_remit/database/login_info_storage.dart';
@@ -40,6 +44,10 @@ void main() async {
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   await Hive.initFlutter();
+
+  // Initialize offline services
+  await ConnectivityService.instance.initialize();
+  await OfflineCache.initialize();
 
   // One-time cleanup of the device-global boxes that used to cache
   // per-user business data (transactions, contacts, cards). These
@@ -170,8 +178,7 @@ class _MyAppState extends State<MyApp> {
         home: Builder(
           builder: (context) {
             // Still resolving Hive/login state — show the splash screen
-            // and wait. This must be checked first, before any routing
-            // decision, or the UI flashes the wrong screen for a frame.
+            // and wait.
             if (_previousllyInstalled == null || _isLoggedIn == null) {
               return Material(
                 type: MaterialType.transparency,
@@ -181,21 +188,34 @@ class _MyAppState extends State<MyApp> {
 
             _safeRemoveSplash();
 
-            // A returning user who has already completed onboarding
-            // before: still show the onboarding screen first — it's
-            // now the app's permanent entry point for everyone — but
-            // carry their session through so "Start sending" drops
-            // them straight back into the app instead of asking them
-            // to log in again.
+            // ── Web / PWA routing ─────────────────────────────────────────
+            // PWA (standalone installed app): skip onboarding entirely —
+            //   go directly to login, or home if already authenticated.
+            //   On first launch, OfflineSetupScreen runs first (one-time).
+            //
+            // Browser (not installed): show the same app but with an
+            //   "Install" banner. Still skips intro — Dutch Remit has no
+            //   separate marketing homepage in the Flutter shell.
+            //
+            // Native (iOS/Android): existing onboarding flow unchanged.
+            if (kIsWeb) {
+              final directHome = _isLoggedIn == true && _loggedInUserData != null
+                  ? OnboardingScreen(userData: _loggedInUserData!)
+                  : LoginScreen();
+
+              return PwaBootstrap(
+                normalHome: directHome,
+                builder: (resolved) => resolved,
+              );
+            }
+
+            // ── Native (iOS / Android) — unchanged ───────────────────────
             if (_previousllyInstalled == true) {
               if (_isLoggedIn == true && _loggedInUserData != null) {
                 return OnboardingScreen(userData: _loggedInUserData!);
               }
               return OnboardingScreen();
             }
-
-            // First-ever launch: onboarding shows first, exactly the
-            // same as for returning users above.
             return OnboardingScreen();
           },
         ),

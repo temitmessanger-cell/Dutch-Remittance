@@ -1,399 +1,184 @@
-<!DOCTYPE html><html><head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
+  <title>Dutch Remit</title>
+  <meta name="description" content="Send money to 32 countries — Africa, Europe and the US. Instant transfers, live rates, virtual cards." />
+  <meta name="application-name" content="Dutch Remit" />
+  <meta name="theme-color" content="#1546A0" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0D2E7A" media="(prefers-color-scheme: dark)" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Dutch Remit" />
+  <meta name="format-detection" content="telephone=no" />
 
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/Icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/Icon-512.png" />
+  <link rel="apple-touch-icon" sizes="192x192" href="icons/Icon-192.png" />
 
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
-  <base href="/">
+  <meta property="og:type"        content="website" />
+  <meta property="og:title"       content="Dutch Remit — Send Money Worldwide" />
+  <meta property="og:description" content="Send money to 32 countries. Live rates. Virtual cards." />
+  <meta property="og:image"       content="icons/Icon-512.png" />
+  <meta name="twitter:card"        content="summary" />
+  <meta name="twitter:title"       content="Dutch Remit" />
+  <meta name="twitter:description" content="Send money to 32 countries." />
 
-  <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <style>
+    html, body { margin:0; padding:0; background:#1546A0; height:100%; overflow:hidden; }
 
-  <!-- SEO: primary meta tags -->
-  <meta name="description" content="Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform, and one of Africa's leading platforms for sending money and spending online — with Europe, UAE and Asia coverage expanding, mobile money and bank payouts across 120+ countries, 20+ currencies, backed by global fintech infrastructure.">
-  <meta name="keywords" content="Dutch Remit, Cameroon money transfer, send money to Cameroon, African remittances, international money transfer, send money abroad, receive money internationally, currency exchange, global payments, mobile money Cameroon, virtual card Cameroon, send money to UAE, send money to Dubai, send money to Europe, send money to Asia">
-  <meta name="author" content="Dutch Remit">
-  <meta name="robots" content="index, follow">
-  <link rel="canonical" href="https://dutchremit.dubiabank.com/">
+    #dr-splash {
+      position:fixed; inset:0; background:#1546A0;
+      display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+      z-index:9999; transition:opacity 0.35s ease;
+    }
+    #dr-splash.fade { opacity:0; pointer-events:none; }
+    #dr-splash-icon {
+      width:76px; height:76px; border-radius:20px;
+      background:rgba(255,255,255,0.13);
+      display:flex; align-items:center; justify-content:center;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      font-size:28px; font-weight:800; color:#fff; letter-spacing:-1px;
+    }
+    #dr-splash-name {
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      font-size:20px; font-weight:700; color:#fff;
+    }
 
-  <!-- Open Graph / Facebook, LinkedIn, etc. link previews -->
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://dutchremit.dubiabank.com/">
-  <meta property="og:title" content="Dutch Remit — Cameroon's Biggest Remittance & Cards Platform, Africa's Leading Choice">
-  <meta property="og:description" content="Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform, and one of Africa's leading platforms — with Europe, UAE and Asia coverage expanding, mobile money and bank payouts across 120+ countries, 20+ currencies, backed by global fintech infrastructure.">
-  <meta property="og:image" content="https://dutchremit.dubiabank.com/icons/Icon-512.png">
-  <meta property="og:site_name" content="Dutch Remit">
-
-  <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="https://dutchremit.dubiabank.com/">
-  <meta name="twitter:title" content="Dutch Remit — Cameroon's Biggest Remittance & Cards Platform, Africa's Leading Choice">
-  <meta name="twitter:description" content="Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform, and one of Africa's leading platforms — mobile money and bank payouts across 120+ countries, 20+ currencies.">
-  <meta name="twitter:image" content="https://dutchremit.dubiabank.com/icons/Icon-512.png">
-
-  <!-- Structured data: tells search engines this is a financial service -->
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@graph": [
-      {
-        "@type": "Organization",
-        "name": "Dutch Remit",
-        "url": "https://dutchremit.dubiabank.com/",
-        "logo": "https://dutchremit.dubiabank.com/icons/Icon-512.png",
-        "sameAs": [],
-        "areaServed": {
-          "@type": "Country",
-          "name": "Cameroon"
-        }
-      },
-      {
-        "@type": "WebSite",
-        "url": "https://dutchremit.dubiabank.com/",
-        "name": "Dutch Remit",
-        "description": "Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform and one of Africa's leading platforms for sending money and spending online."
-      },
-      {
-        "@type": "FinancialService",
-        "name": "Dutch Remit",
-        "description": "Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform, and one of Africa's leading platforms — connecting Cameroon and the wider African diaspora with mobile money and bank payouts across 120+ countries and 20+ currencies, with Europe, UAE and Asia coverage expanding, backed by global fintech infrastructure (Eversend, Klasha).",
-        "areaServed": ["Cameroon", "Africa", "Europe", "United Arab Emirates", "Asia", "Worldwide"]
-      }
-    ]
-  }
-  </script>
-
-  <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="Dutch Remit">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
-
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png">
-
-  <title>Dutch Remit — Cameroon's Biggest Remittance & Cards Platform, Africa's Leading Choice</title>
-  <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" type="text/css" href="splash/style.css">
-  <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
-  <script src="splash/splash.js"></script>
+    #a2hs {
+      display:none; position:fixed; bottom:0; left:0; right:0;
+      background:#fff; border-top:1px solid #e5e7eb;
+      padding:12px 16px; z-index:8888;
+      align-items:center; gap:12px;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      box-shadow:0 -2px 16px rgba(0,0,0,.10);
+    }
+    #a2hs.show { display:flex; }
+    #a2hs-icon {
+      width:42px; height:42px; border-radius:10px; flex-shrink:0;
+      background:#1546A0; display:flex; align-items:center; justify-content:center;
+      font-size:15px; font-weight:800; color:#fff;
+    }
+    #a2hs-body { flex:1; min-width:0; }
+    #a2hs-body strong { display:block; font-size:14px; color:#111; margin-bottom:2px; }
+    #a2hs-body span   { font-size:12px; color:#666; }
+    #a2hs-install {
+      background:#1546A0; color:#fff; border:none; border-radius:8px;
+      padding:9px 16px; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap;
+    }
+    #a2hs-close { background:none; border:none; color:#bbb; font-size:18px; cursor:pointer; padding:0 4px; }
+  </style>
 </head>
 <body>
-  <style>
-    body {
-      margin: 0;
-      background: #163172;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
 
-    #seo-shell {
-      position: relative;
-      /* Same stacking tier as #splash below (z-index: 0, not 1) — the
-         Flutter engine appends its own root element to <body> *after*
-         this div in source order, so once it paints, it naturally
-         covers this shell for real users without needing JS to hide
-         or remove it. This div is intentionally NEVER hidden or
-         removed: it's the only text content a crawler that reads the
-         DOM (Googlebot included, once it runs the page's JS) will
-         ever find, since the live app renders to a <canvas> that has
-         no extractable text at all. See index.html's closing script
-         for the corresponding first-frame handling.
-
-         Redesigned: the SEO paragraphs below used to sit in the same
-         visible flow as the loading spinner, all at once, at full
-         opacity — a wall of marketing copy where a real user expects
-         a clean loading screen. Fixed by splitting this into two
-         layers: a polished, animated "hero" (icon, wordmark, a real
-         multi-ring loading animation, a rotating status line) that's
-         all a human ever consciously looks at, and the actual SEO
-         copy still fully present in the DOM right below it —
-         crawlable, real content, just visually de-emphasized (small,
-         muted, scrolled past) rather than competing with the loading
-         moment for attention. */
-      z-index: 0;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 0 20px;
-      background: radial-gradient(120% 120% at 50% 0%, #1c3d8f 0%, #163172 45%, #0e2154 100%);
-      color: #ffffff;
-      pointer-events: none;
-      overflow: hidden;
-    }
-
-    #seo-shell a { pointer-events: auto; color: #a9c2ff; }
-
-    /* ---- The hero: what a real user actually sees and watches ---- */
-    #seo-shell-hero {
-      min-height: 100vh;
-      width: 100%;
-      max-width: 420px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-    }
-
-    #seo-shell-icon-wrap {
-      position: relative;
-      width: 96px;
-      height: 96px;
-      margin-bottom: 28px;
-    }
-
-    #seo-shell-icon {
-      width: 96px;
-      height: 96px;
-      border-radius: 24px;
-      position: relative;
-      z-index: 2;
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
-      animation: seo-shell-icon-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
-    }
-
-    /* Two concentric rings orbiting at different speeds, plus a soft
-       pulsing glow behind the icon — reads as "a real system is
-       working", not a single generic spinner. */
-    #seo-shell-ring-outer,
-    #seo-shell-ring-inner {
-      position: absolute;
-      inset: -14px;
-      border-radius: 50%;
-      border: 2px solid transparent;
-    }
-    #seo-shell-ring-outer {
-      border-top-color: #5b8def;
-      border-right-color: rgba(91, 141, 239, 0.25);
-      animation: seo-shell-spin 1.4s linear infinite;
-    }
-    #seo-shell-ring-inner {
-      inset: -26px;
-      border-bottom-color: #a9c2ff;
-      border-left-color: rgba(169, 194, 255, 0.15);
-      animation: seo-shell-spin 2.2s linear infinite reverse;
-    }
-    #seo-shell-glow {
-      position: absolute;
-      inset: -30px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(91, 141, 239, 0.35) 0%, transparent 70%);
-      animation: seo-shell-pulse 2.4s ease-in-out infinite;
-      z-index: 1;
-    }
-
-    @keyframes seo-shell-spin {
-      to { transform: rotate(360deg); }
-    }
-    @keyframes seo-shell-pulse {
-      0%, 100% { opacity: 0.5; transform: scale(0.92); }
-      50% { opacity: 1; transform: scale(1.08); }
-    }
-    @keyframes seo-shell-icon-in {
-      from { opacity: 0; transform: translateY(10px) scale(0.9); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    @keyframes seo-shell-fade-up {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    #seo-shell-wordmark {
-      font-size: 1.5rem;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      margin: 0 0 10px;
-      animation: seo-shell-fade-up 0.6s 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
-    }
-
-    #seo-shell-status {
-      font-size: 0.9rem;
-      font-weight: 600;
-      color: rgba(255, 255, 255, 0.7);
-      margin: 0;
-      min-height: 1.3em;
-      animation: seo-shell-fade-up 0.6s 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
-    }
-
-    /* Status line rotates through a short sequence via a tiny inline
-       script below — purely cosmetic, never blocks or delays
-       anything; if JS for this specific bit fails for any reason the
-       first message just stays put. */
-    #seo-shell-status span {
-      display: inline-block;
-      animation: seo-shell-status-fade 0.4s ease both;
-    }
-    @keyframes seo-shell-status-fade {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
-    #seo-shell-progress-track {
-      width: 160px;
-      height: 3px;
-      border-radius: 2px;
-      background: rgba(255, 255, 255, 0.12);
-      margin-top: 28px;
-      overflow: hidden;
-      animation: seo-shell-fade-up 0.6s 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
-    }
-    #seo-shell-progress-bar {
-      width: 40%;
-      height: 100%;
-      border-radius: 2px;
-      background: linear-gradient(90deg, #5b8def, #a9c2ff);
-      animation: seo-shell-progress 1.6s ease-in-out infinite;
-    }
-    @keyframes seo-shell-progress {
-      0% { transform: translateX(-120%); }
-      100% { transform: translateX(280%); }
-    }
-
-    /* ---- The SEO body: fully real, fully crawlable, just not what
-       a human's eye is drawn to during the loading moment. ---- */
-    #seo-shell-copy {
-      width: 100%;
-      max-width: 640px;
-      text-align: center;
-      padding: 40px 0 56px;
-      border-top: 1px solid rgba(255, 255, 255, 0.08);
-      margin-top: 12px;
-    }
-
-    #seo-shell-copy h1 {
-      margin: 0 0 14px;
-      font-size: clamp(1.3rem, 3.5vw, 1.8rem);
-      line-height: 1.2;
-      letter-spacing: -0.02em;
-      font-weight: 800;
-      color: rgba(255, 255, 255, 0.92);
-    }
-
-    #seo-shell-copy p {
-      margin: 0 0 12px;
-      font-size: 0.92rem;
-      line-height: 1.7;
-      color: rgba(255, 255, 255, 0.55);
-    }
-
-    #seo-shell-copy ul {
-      list-style: none;
-      padding: 0;
-      margin: 18px 0 0;
-      font-size: 0.88rem;
-      line-height: 1.9;
-      color: rgba(255, 255, 255, 0.5);
-    }
-
-    #seo-shell-links {
-      margin-top: 10px;
-      font-size: 0.82rem;
-    }
-    #seo-shell-links a { margin: 0 8px; }
-
-    #splash {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      pointer-events: none;
-      background: #f8fbff;
-      z-index: 0;
-    }
-  </style>
-
-  <div id="seo-shell" aria-label="Dutch Remit overview">
-    <div id="seo-shell-hero">
-      <div id="seo-shell-icon-wrap">
-        <div id="seo-shell-glow"></div>
-        <div id="seo-shell-ring-outer"></div>
-        <div id="seo-shell-ring-inner"></div>
-        <img id="seo-shell-icon" src="icons/Icon-192.png" alt="Dutch Remit" />
-      </div>
-      <p id="seo-shell-wordmark">Dutch Remit</p>
-      <p id="seo-shell-status" role="status" aria-live="polite"><span>Setting things up…</span></p>
-      <div id="seo-shell-progress-track"><div id="seo-shell-progress-bar"></div></div>
-    </div>
-    <div id="seo-shell-copy">
-      <h1>Dutch Remit</h1>
-      <p>Dutch Remit is Cameroon's biggest cross-border remittance and virtual card platform, and one of Africa's leading platforms — connecting Cameroon and the wider African diaspora with money transfer and card services across Europe, the UAE and Asia, with coverage expanding.</p>
-      <p>Users can send money, manage transfers, track payments, and access financial services through a secure digital experience designed for international transfers and account-based payments — with real, live exchange rates, mobile money and bank payouts across 120+ countries and 20+ currencies, backed by global fintech infrastructure.</p>
-      <ul>
-        <li>Cameroon's biggest cross-border remittance and virtual card platform</li>
-        <li>International money transfer and card services across 120+ countries</li>
-        <li>20+ currencies, including local money like XAF, NGN and GHS</li>
-        <li>Cross-border payments reaching Europe, the UAE and Asia</li>
-        <li>Secure remittance and transfer experience for the African diaspora</li>
-      </ul>
-      <p id="seo-shell-links"><a href="/about">About</a> &middot; <a href="/faq">FAQ</a> &middot; <a href="/terms">Terms of Use</a> &middot; <a href="/privacy">Privacy Policy</a></p>
-    </div>
+  <div id="dr-splash">
+    <div id="dr-splash-icon">DR</div>
+    <span id="dr-splash-name">Dutch Remit</span>
   </div>
 
-  <picture id="splash">
-      <source srcset="splash/img/light-1x.png 1x, splash/img/light-2x.png 2x, splash/img/light-3x.png 3x, splash/img/light-4x.png 4x" media="(prefers-color-scheme: light)">
-      <source srcset="splash/img/dark-1x.png 1x, splash/img/dark-2x.png 2x, splash/img/dark-3x.png 3x, splash/img/dark-4x.png 4x" media="(prefers-color-scheme: dark)">
-      <img class="center" aria-hidden="true" src="splash/img/light-1x.png" alt="">
-  </picture>
+  <div id="a2hs">
+    <div id="a2hs-icon">DR</div>
+    <div id="a2hs-body">
+      <strong>Install Dutch Remit</strong>
+      <span>Works offline · No browser bar · Faster</span>
+    </div>
+    <button id="a2hs-install">Install</button>
+    <button id="a2hs-close">&#x2715;</button>
+  </div>
 
   <script>
-    document.documentElement.classList.add('js-enabled');
+  (function(){
+    'use strict';
 
-    // Flutter's engine dispatches this event the moment the very first
-    // real frame has painted — this is Flutter's own documented hook
-    // for retiring a loading/splash screen (window 'load' fires only
-    // after every last asset on the page has downloaded, which is much
-    // later and unrelated to whether the app has actually rendered).
-    // #seo-shell above is deliberately NOT touched here: it stays in
-    // the DOM permanently as the page's real, crawlable content, and
-    // is only ever covered visually (not hidden) once Flutter paints
-    // on top of it — see the z-index note on #seo-shell's CSS.
-    window.addEventListener('flutter-first-frame', function () {
-      document.documentElement.classList.add('flutter-loaded');
-      window.removeSplashFromWeb?.();
-    }, { once: true });
+    // ── PWA detection ──────────────────────────────────────────────────────
+    function isPwa(){
+      if(window.matchMedia('(display-mode: standalone)').matches) return true;
+      if(window.navigator.standalone===true) return true;
+      if(document.referrer.startsWith('android-app://')) return true;
+      return false;
+    }
+    window.__DUTCH_REMIT_IS_PWA__ = isPwa();
+    window.dutchRemitIsPwa = isPwa;
 
-    // Safety net: if the engine never dispatches flutter-first-frame
-    // (blocked/slow WASM download, a script error, an unsupported
-    // browser), clear the branded splash image after a timeout so it
-    // doesn't linger forever. #seo-shell remains visible underneath
-    // either way, so there is never a truly blank page.
-    setTimeout(function () {
-      window.removeSplashFromWeb?.();
-    }, 8000);
+    // ── URL suppression in PWA mode ────────────────────────────────────────
+    if(isPwa() && window.location.pathname !== '/'){
+      try{ history.replaceState(null,'','/'); }catch(_){}
+    }
 
-    // Purely cosmetic status-line rotation on the loading hero — gives
-    // the sense of real progress during the CanvasKit/main.dart.js
-    // download instead of one static "Loading…" the whole time. Never
-    // blocks or delays anything real; if this fails for any reason
-    // the first message just stays put, which is a fine fallback.
-    (function () {
-      var messages = [
-        'Setting things up…',
-        'Connecting securely…',
-        'Almost there…'
-      ];
-      var el = document.getElementById('seo-shell-status');
-      if (!el) return;
-      var i = 0;
-      setInterval(function () {
-        i = (i + 1) % messages.length;
-        var span = document.createElement('span');
-        span.textContent = messages[i];
-        el.innerHTML = '';
-        el.appendChild(span);
-      }, 1800);
-    })();
+    // ── SW registration ────────────────────────────────────────────────────
+    var lastSwMsg = null;
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker
+        .register('/sw.js',{scope:'/',updateViaCache:'none'})
+        .then(function(reg){
+          console.log('[DR] SW registered');
+          reg.update().catch(function(){});
+        })
+        .catch(function(e){ console.warn('[DR] SW failed',e); });
+
+      navigator.serviceWorker.addEventListener('message',function(e){
+        var d = e.data||{};
+        lastSwMsg = d;
+        window.__DR_SW_LAST_MSG__ = d;
+        window.dispatchEvent(new CustomEvent('dr_sw_message',{detail:d}));
+      });
+    }
+    window.getDrLastSwMessage = function(){ return lastSwMsg; };
+
+    // ── Add-to-Home-Screen ────────────────────────────────────────────────
+    var dip=null, a2hs=document.getElementById('a2hs');
+    window.addEventListener('beforeinstallprompt',function(e){
+      if(isPwa()) return;
+      if(sessionStorage.getItem('a2hs_dismissed')) return;
+      e.preventDefault(); dip=e;
+      a2hs&&a2hs.classList.add('show');
+    });
+    document.getElementById('a2hs-install')
+      &&document.getElementById('a2hs-install').addEventListener('click',function(){
+        a2hs&&a2hs.classList.remove('show');
+        if(dip){dip.prompt();dip.userChoice.then(function(){dip=null;});}
+      });
+    document.getElementById('a2hs-close')
+      &&document.getElementById('a2hs-close').addEventListener('click',function(){
+        a2hs&&a2hs.classList.remove('show');
+        sessionStorage.setItem('a2hs_dismissed','1');
+      });
+    window.addEventListener('appinstalled',function(){
+      a2hs&&a2hs.classList.remove('show'); dip=null;
+    });
+    window.dutchRemitTriggerInstall = function(){
+      if(dip){a2hs&&a2hs.classList.remove('show');dip.prompt();}
+    };
+
+    // ── Remove pre-Flutter splash on first frame ───────────────────────────
+    window.addEventListener('flutter-first-frame',function(){
+      var s=document.getElementById('dr-splash');
+      if(s){s.classList.add('fade');setTimeout(function(){s.remove();},380);}
+    });
+  }());
   </script>
 
-  <script src="flutter_bootstrap.js" async=""></script>
-</body></html>
+  <!--
+    flutter_bootstrap.js is auto-generated by flutter build web.
+    For older Flutter versions that don't generate it, use:
+      <script src="flutter.js" defer></script>
+      <script>
+        window.addEventListener('load', () =>
+          _flutter.loader.loadEntrypoint({
+            serviceWorker: { serviceWorkerVersion: null },
+            onEntrypointLoaded: async (ei) => {
+              const r = await ei.initializeEngine({ useColorEmoji: true });
+              await r.runApp();
+            }
+          }));
+      </script>
+  -->
+  <script src="flutter_bootstrap.js" async></script>
+
+</body>
+</html>

@@ -150,7 +150,13 @@ async function executePayout(body, { userId, supabaseAdmin } = {}) {
   const provider = resolveProvider(resolvedCurrency);
 
   if (provider === 'eversend') {
-    const data = await eversend.post('/payouts', body);
+    // Eversend returns token: null on quotation responses for this
+    // account type. Strip null/undefined token so we don't send a
+    // null token field that could trigger a validation error.
+    const payoutBody = Object.fromEntries(
+      Object.entries(body).filter(([k, v]) => k !== 'token' && k !== 'quotationToken' || (v != null && v !== 'null'))
+    );
+    const data = await eversend.post('/payouts', payoutBody);
     return { provider: 'eversend', data };
   }
 

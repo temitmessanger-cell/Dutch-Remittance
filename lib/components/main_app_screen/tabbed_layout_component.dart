@@ -189,6 +189,7 @@ class _TabbedLayoutComponentState extends State<TabbedLayoutComponent> {
       ),
       ProfileSettingsTabScreen(
         user: widget.userData,
+        userAuthKey: userAuthKey,
       ),
     ];
     return WillPopScope(

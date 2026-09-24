@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:dutch_remit/services/offline_action_guard.dart';
 import 'package:provider/provider.dart';
 import 'package:dutch_remit/database/crypto_price_service.dart';
 import 'package:dutch_remit/providers/user_login_state_provider.dart';
@@ -202,6 +203,7 @@ class _WithdrawScreenState extends State<WithdrawScreen> {
   }
 
   Future<void> _confirmWithdraw() async {
+    if (!await OfflineActionGuard.check(context, action: 'Withdraw')) return;
     if (_isGuest) {
       _showCreateAccountPrompt();
       return;
@@ -340,6 +342,11 @@ class _WithdrawScreenState extends State<WithdrawScreen> {
     if (!mounted) return;
     Provider.of<UserLoginStateProvider>(context, listen: false)
         .syncBalanceFromEversend(widget.userAuthKey);
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      Provider.of<UserLoginStateProvider>(context, listen: false)
+          .syncBalanceFromEversend(widget.userAuthKey);
+    });
 
     if (proceed == true) {
       // Hand off to the same real bank-transfer flow every other

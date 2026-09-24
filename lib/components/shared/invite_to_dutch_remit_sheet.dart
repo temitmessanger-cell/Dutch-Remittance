@@ -31,8 +31,8 @@ String _inviteUrlFor(String? referralCode) {
 
 String _inviteMessageFor(String? referralCode) {
   final url = _inviteUrlFor(referralCode);
-  return "I'm on Dutch Remit — Cameroon's biggest cross-border remittance platform. "
-      "Join me and let's send money simply: $url";
+  return "I'm on Dutch Remit — send money to 32 countries instantly. "
+      "Join me: $url";
 }
 
 /// Shows the "Invite to Dutch Remit" picker: lets the person choose

@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://dutchremit.com/sitemap.xml
+
+# Dutch Remit — Social Media
+# YouTube:   https://www.youtube.com/@Dutch.Inc.Platforms
+# Instagram: https://www.instagram.com/dutchincplatforms
+# TikTok:    https://www.tiktok.com/@dutch.inc.platforms
