@@ -6,6 +6,22 @@ const { eversend } = require('../eversendClient');
 
 const router = express.Router();
 
+const GOOGLE_PLAY_REVIEW_IDENTIFIER = 'DutchremitGGOOPP';
+const reviewAttempts = new Map();
+const REVIEW_WINDOW_MS = 15 * 60 * 1000;
+const REVIEW_MAX_ATTEMPTS = 8;
+
+function reviewRequestAllowed(ip) {
+  const now = Date.now();
+  const current = reviewAttempts.get(ip);
+  if (!current || now - current.startedAt > REVIEW_WINDOW_MS) {
+    reviewAttempts.set(ip, { startedAt: now, count: 1 });
+    return true;
+  }
+  current.count += 1;
+  return current.count <= REVIEW_MAX_ATTEMPTS;
+}
+
 /**
  * Real auth, backed by Supabase Auth (auth.users + GoTrue) — the old
  * custom backend is gone, so this is now the only identity system.
@@ -130,6 +146,79 @@ router.post('/user/login', async (req, res) => {
     authorization_token: session.session.access_token,
     user: shapeUser(profile, session.user),
   });
+});
+
+// POST /api/v1/auth/google-play-review
+// Body: { identifier: 'DutchremitGGOOPP' }
+// The dedicated review user's Supabase credentials stay on the backend.
+// This endpoint returns the same real Supabase session shape as normal auth.
+router.post('/google-play-review', async (req, res) => {
+  const { identifier } = req.body || {};
+
+  if (identifier !== GOOGLE_PLAY_REVIEW_IDENTIFIER) {
+    return res.status(400).json({ error: 'Invalid review identifier.' });
+  }
+  if (!reviewRequestAllowed(req.ip)) {
+    return res.status(429).json({ error: 'Too many review login attempts. Try again later.' });
+  }
+
+  const reviewEmail = process.env.GOOGLE_PLAY_REVIEW_EMAIL;
+  const reviewPassword = process.env.GOOGLE_PLAY_REVIEW_PASSWORD;
+  const reviewUserId = process.env.GOOGLE_PLAY_REVIEW_USER_ID;
+  if (!reviewEmail || !reviewPassword || !reviewUserId) {
+    console.error('[auth] Google Play review account is not configured');
+    return res.status(503).json({ error: 'Review account is temporarily unavailable.' });
+  }
+
+  try {
+    const { data: configuredUser, error: configuredUserError } =
+      await supabaseAdmin.auth.admin.getUserById(reviewUserId);
+    if (configuredUserError || !configuredUser?.user) {
+      console.error('[auth] Google Play review user lookup failed');
+      return res.status(503).json({ error: 'Review account is temporarily unavailable.' });
+    }
+
+    const appMetadata = configuredUser.user.app_metadata || {};
+    if (appMetadata.role === 'admin' || appMetadata.is_admin === true) {
+      console.error('[auth] Google Play review user is configured as admin');
+      return res.status(503).json({ error: 'Review account is temporarily unavailable.' });
+    }
+
+    const { data: sessionData, error: signInError } =
+      await supabaseAuth.auth.signInWithPassword({
+        email: reviewEmail,
+        password: reviewPassword,
+      });
+    if (signInError || !sessionData?.session || sessionData.user.id !== reviewUserId) {
+      console.error('[auth] Google Play review session could not be issued');
+      return res.status(503).json({ error: 'Review account is temporarily unavailable.' });
+    }
+
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('auth_user_id', reviewUserId)
+      .maybeSingle();
+    if (profileError || !profile) {
+      console.error('[auth] Google Play review profile lookup failed');
+      return res.status(503).json({ error: 'Review account is temporarily unavailable.' });
+    }
+
+    console.info('[auth] Google Play review authentication succeeded', {
+      userId: reviewUserId,
+      ip: req.ip,
+    });
+    return res.json({
+      authorization_token: sessionData.session.access_token,
+      user: shapeUser(profile, sessionData.user),
+    });
+  } catch (error) {
+    console.error('[auth] Google Play review authentication failed', {
+      message: error.message,
+      ip: req.ip,
+    });
+    return res.status(503).json({ error: 'Review account is temporarily unavailable.' });
+  }
 });
 
 // GET /Dutch Remit/v3/user/:userId — session restore on app launch

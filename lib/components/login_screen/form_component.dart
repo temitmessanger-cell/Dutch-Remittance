@@ -26,6 +26,7 @@ class LoginFormComponent extends StatefulWidget {
 }
 
 class LoginFormComponentState extends State<LoginFormComponent> {
+  static const _googlePlayReviewIdentifier = 'DutchremitGGOOPP';
   LoginInfoStorage loginInfoStorage = LoginInfoStorage();
   final _emailFormKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
@@ -90,8 +91,65 @@ class LoginFormComponentState extends State<LoginFormComponent> {
     }
   }
 
+  Future<void> _finishAuthenticatedLogin(
+      Map<String, dynamic> dataReceived) async {
+    final status = await Future.wait([
+      _saveLoggedInUserData(
+          dataReceived['authorization_token'], dataReceived['user']),
+      CardsStorage()
+          .initializeAvailableCards(dataReceived['authorization_token']),
+      SuccessfulTransactionsStorage().initializeSuccessfulTransactions()
+    ]);
+
+    if (!mounted) return;
+    setState(() => _isVerifying = false);
+
+    if (status[0] == true && status[1] == true && status[2] == true) {
+      final alreadyOnboarded = await UserDeviceInfoStorage().wasUsedBefore;
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(
+              content: Text("Login Successful"),
+              backgroundColor: AppColors.success))
+          .closed
+          .then((value) => Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(
+                  builder: (context) => alreadyOnboarded
+                      ? TabbedLayoutComponent(userData: dataReceived['user'])
+                      : OnboardingScreen(userData: dataReceived['user'])),
+              (route) => false));
+    }
+  }
+
+  Future<void> _signInGooglePlayReviewAccount() async {
+    setState(() {
+      _isSendingCode = true;
+      emailErrorMessage = "";
+    });
+
+    final response = await sendData(
+      urlPath: "/api/v1/auth/google-play-review",
+      data: {"identifier": _googlePlayReviewIdentifier},
+    );
+    if (!mounted) return;
+    setState(() => _isSendingCode = false);
+
+    if (response.keys.join().toLowerCase().contains("error")) {
+      showErrorAlert(context, response);
+      return;
+    }
+
+    setState(() => _isVerifying = true);
+    await _finishAuthenticatedLogin(response);
+  }
+
   void _requestCode() async {
     FocusManager.instance.primaryFocus?.unfocus();
+    if (_emailController.text.trim() == _googlePlayReviewIdentifier) {
+      await _signInGooglePlayReviewAccount();
+      return;
+    }
     if (!_emailFormKey.currentState!.validate() || emailErrorMessage != '') {
       return;
     }
@@ -144,37 +202,7 @@ class LoginFormComponentState extends State<LoginFormComponent> {
       return;
     }
 
-    final status = await Future.wait([
-      _saveLoggedInUserData(
-          dataReceived['authorization_token'], dataReceived['user']),
-      CardsStorage()
-          .initializeAvailableCards(dataReceived['authorization_token']),
-      SuccessfulTransactionsStorage().initializeSuccessfulTransactions()
-    ]);
-
-    if (!mounted) return;
-    setState(() => _isVerifying = false);
-
-    if (status[0] == true && status[1] == true && status[2] == true) {
-      // First-ever launch: onboarding hasn't been shown yet, so route
-      // through it now (it forwards to the main app once finished).
-      // Any later login from a returning user skips straight to the
-      // main app, exactly as before.
-      final alreadyOnboarded = await UserDeviceInfoStorage().wasUsedBefore;
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(
-              content: Text("Login Successful"),
-              backgroundColor: AppColors.success))
-          .closed
-          .then((value) => Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(
-                  builder: (context) => alreadyOnboarded
-                      ? TabbedLayoutComponent(userData: dataReceived['user'])
-                      : OnboardingScreen(userData: dataReceived['user'])),
-              (route) => false));
-    }
+    await _finishAuthenticatedLogin(dataReceived);
   }
 
   void _changeEmail() {
