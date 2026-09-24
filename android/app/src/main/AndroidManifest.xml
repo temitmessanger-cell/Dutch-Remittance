@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.Dutch Remit">
+    package="com.dubiabank.dutchremit.twa">
     <uses-permission android:name="android.permission.INTERNET"/>
 <queries>
   <!--? app opens https URLs -->
@@ -13,7 +13,7 @@
         android:label="Dutch Remit"
         android:icon="@mipmap/ic_launcher">
         <activity
-            android:name=".MainActivity"
+            android:name="com.dubiabank.dutchremit.twa.MainActivity"
             android:launchMode="singleTop"
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"

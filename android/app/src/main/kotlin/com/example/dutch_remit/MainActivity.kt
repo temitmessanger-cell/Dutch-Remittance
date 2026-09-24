@@ -1,4 +1,4 @@
-package com.example.dutch_remit
+package com.dubiabank.dutchremit.twa
 
 import io.flutter.embedding.android.FlutterActivity
 
