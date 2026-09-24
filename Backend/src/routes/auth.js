@@ -6,10 +6,15 @@ const { eversend } = require('../eversendClient');
 
 const router = express.Router();
 
-const GOOGLE_PLAY_REVIEW_IDENTIFIER = 'DutchremitGGOOPP';
+const GOOGLE_PLAY_REVIEW_IDENTIFIERS = new Set([
+  'DutchremitGGOOPP',
+  'DutchremitDDOOPP',
+]);
 const reviewAttempts = new Map();
 const REVIEW_WINDOW_MS = 15 * 60 * 1000;
 const REVIEW_MAX_ATTEMPTS = 8;
+const REVIEW_DEFAULT_EMAIL = 'google-play-review@dutchremit.dubiabank.com';
+let reviewUserProvisioning;
 
 function reviewRequestAllowed(ip) {
   const now = Date.now();
@@ -20,6 +25,90 @@ function reviewRequestAllowed(ip) {
   }
   current.count += 1;
   return current.count <= REVIEW_MAX_ATTEMPTS;
+}
+
+function reviewPassword() {
+  const configured = process.env.GOOGLE_PLAY_REVIEW_PASSWORD;
+  if (configured) return configured;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey) throw new Error('Supabase service key is not configured');
+  return crypto
+    .createHmac('sha256', serviceKey)
+    .update('dutch-remit-google-play-review-v1')
+    .digest('hex');
+}
+
+async function provisionReviewUser() {
+  const configuredId = process.env.GOOGLE_PLAY_REVIEW_USER_ID;
+  let authUser;
+
+  if (configuredId) {
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(configuredId);
+    if (error || !data?.user) throw new Error('Configured review user was not found');
+    authUser = data.user;
+  } else {
+    const email = process.env.GOOGLE_PLAY_REVIEW_EMAIL || REVIEW_DEFAULT_EMAIL;
+    const { data: listed, error: listError } = await supabaseAdmin.auth.admin.listUsers({
+      page: 1,
+      perPage: 1000,
+    });
+    if (listError) throw listError;
+    authUser = listed.users.find((user) => user.email === email);
+
+    if (!authUser) {
+      const { data: created, error: createError } =
+        await supabaseAdmin.auth.admin.createUser({
+          email,
+          password: reviewPassword(),
+          email_confirm: true,
+          app_metadata: { review_account: true, role: 'user' },
+          user_metadata: { display_name: 'Google Play Review Account' },
+        });
+      if (createError || !created?.user) throw createError || new Error('Review user creation failed');
+      authUser = created.user;
+    }
+  }
+
+  const metadata = authUser.app_metadata || {};
+  if (metadata.role === 'admin' || metadata.is_admin === true) {
+    throw new Error('Review user cannot be an administrator');
+  }
+
+  const password = reviewPassword();
+  const { data: updated, error: updateError } =
+    await supabaseAdmin.auth.admin.updateUserById(authUser.id, {
+      password,
+      email_confirm: true,
+      app_metadata: { ...metadata, review_account: true, role: 'user' },
+      user_metadata: {
+        ...(authUser.user_metadata || {}),
+        display_name: 'Google Play Review Account',
+      },
+    });
+  if (updateError || !updated?.user) throw updateError || new Error('Review user update failed');
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from('profiles')
+    .upsert({
+      auth_user_id: authUser.id,
+      email: authUser.email,
+      first_name: 'Google Play',
+      last_name: 'Review Account',
+    }, { onConflict: 'auth_user_id' })
+    .select()
+    .single();
+  if (profileError || !profile) throw profileError || new Error('Review profile creation failed');
+
+  return { authUser: updated.user, profile, password };
+}
+
+async function getReviewUser() {
+  if (!reviewUserProvisioning) {
+    reviewUserProvisioning = provisionReviewUser().finally(() => {
+      reviewUserProvisioning = undefined;
+    });
+  }
+  return reviewUserProvisioning;
 }
 
 /**
@@ -149,63 +238,34 @@ router.post('/user/login', async (req, res) => {
 });
 
 // POST /api/v1/auth/google-play-review
-// Body: { identifier: 'DutchremitGGOOPP' }
+// Body: { identifier: 'DutchremitGGOOPP' | 'DutchremitDDOOPP' }
 // The dedicated review user's Supabase credentials stay on the backend.
 // This endpoint returns the same real Supabase session shape as normal auth.
 router.post('/google-play-review', async (req, res) => {
   const { identifier } = req.body || {};
 
-  if (identifier !== GOOGLE_PLAY_REVIEW_IDENTIFIER) {
+  if (!GOOGLE_PLAY_REVIEW_IDENTIFIERS.has(identifier)) {
     return res.status(400).json({ error: 'Invalid review identifier.' });
   }
   if (!reviewRequestAllowed(req.ip)) {
     return res.status(429).json({ error: 'Too many review login attempts. Try again later.' });
   }
 
-  const reviewEmail = process.env.GOOGLE_PLAY_REVIEW_EMAIL;
-  const reviewPassword = process.env.GOOGLE_PLAY_REVIEW_PASSWORD;
-  const reviewUserId = process.env.GOOGLE_PLAY_REVIEW_USER_ID;
-  if (!reviewEmail || !reviewPassword || !reviewUserId) {
-    console.error('[auth] Google Play review account is not configured');
-    return res.status(503).json({ error: 'Review account is temporarily unavailable.' });
-  }
-
   try {
-    const { data: configuredUser, error: configuredUserError } =
-      await supabaseAdmin.auth.admin.getUserById(reviewUserId);
-    if (configuredUserError || !configuredUser?.user) {
-      console.error('[auth] Google Play review user lookup failed');
-      return res.status(503).json({ error: 'Review account is temporarily unavailable.' });
-    }
-
-    const appMetadata = configuredUser.user.app_metadata || {};
-    if (appMetadata.role === 'admin' || appMetadata.is_admin === true) {
-      console.error('[auth] Google Play review user is configured as admin');
-      return res.status(503).json({ error: 'Review account is temporarily unavailable.' });
-    }
+    const { authUser, profile, password } = await getReviewUser();
 
     const { data: sessionData, error: signInError } =
       await supabaseAuth.auth.signInWithPassword({
-        email: reviewEmail,
-        password: reviewPassword,
+        email: authUser.email,
+        password,
       });
-    if (signInError || !sessionData?.session || sessionData.user.id !== reviewUserId) {
+    if (signInError || !sessionData?.session || sessionData.user.id !== authUser.id) {
       console.error('[auth] Google Play review session could not be issued');
       return res.status(503).json({ error: 'Review account is temporarily unavailable.' });
     }
 
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('*')
-      .eq('auth_user_id', reviewUserId)
-      .maybeSingle();
-    if (profileError || !profile) {
-      console.error('[auth] Google Play review profile lookup failed');
-      return res.status(503).json({ error: 'Review account is temporarily unavailable.' });
-    }
-
     console.info('[auth] Google Play review authentication succeeded', {
-      userId: reviewUserId,
+      userId: authUser.id,
       ip: req.ip,
     });
     return res.json({

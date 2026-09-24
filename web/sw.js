@@ -12,7 +12,7 @@
  *   { type: 'INSTALL_ERROR',   error: '...' }           — on failure
  */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const SHELL_CACHE   = `dr-shell-${CACHE_VERSION}`;
 
 // ── API paths safe to serve stale (read-only, no money movement) ───────────

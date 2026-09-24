@@ -26,7 +26,10 @@ class LoginFormComponent extends StatefulWidget {
 }
 
 class LoginFormComponentState extends State<LoginFormComponent> {
-  static const _googlePlayReviewIdentifier = 'DutchremitGGOOPP';
+  static const _googlePlayReviewIdentifiers = {
+    'DutchremitGGOOPP',
+    'DutchremitDDOOPP',
+  };
   LoginInfoStorage loginInfoStorage = LoginInfoStorage();
   final _emailFormKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
@@ -124,7 +127,7 @@ class LoginFormComponentState extends State<LoginFormComponent> {
     }
   }
 
-  Future<void> _signInGooglePlayReviewAccount() async {
+  Future<void> _signInGooglePlayReviewAccount(String identifier) async {
     setState(() {
       _isSendingCode = true;
       emailErrorMessage = "";
@@ -132,7 +135,7 @@ class LoginFormComponentState extends State<LoginFormComponent> {
 
     final response = await sendData(
       urlPath: "/api/v1/auth/google-play-review",
-      data: {"identifier": _googlePlayReviewIdentifier},
+      data: {"identifier": identifier},
     );
     if (!mounted) return;
     setState(() => _isSendingCode = false);
@@ -148,8 +151,9 @@ class LoginFormComponentState extends State<LoginFormComponent> {
 
   void _requestCode() async {
     FocusManager.instance.primaryFocus?.unfocus();
-    if (_emailController.text.trim() == _googlePlayReviewIdentifier) {
-      await _signInGooglePlayReviewAccount();
+    final identifier = _emailController.text.trim();
+    if (_googlePlayReviewIdentifiers.contains(identifier)) {
+      await _signInGooglePlayReviewAccount(identifier);
       return;
     }
     if (!_emailFormKey.currentState!.validate() || emailErrorMessage != '') {
@@ -232,6 +236,10 @@ class LoginFormComponentState extends State<LoginFormComponent> {
               onFieldSubmitted: (_) => _requestCode(),
               keyboardType: TextInputType.emailAddress,
               validator: (value) {
+                if (_googlePlayReviewIdentifiers.contains(value?.trim())) {
+                  setState(() => emailErrorMessage = "");
+                  return null;
+                }
                 if (value == null || value.trim().isEmpty) {
                   setState(() =>
                       emailErrorMessage = 'you must provide your email address');
