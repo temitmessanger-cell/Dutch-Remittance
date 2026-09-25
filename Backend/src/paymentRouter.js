@@ -55,7 +55,7 @@ function applyPlatformMarkup(providerData) {
   const outer = providerData?.data ?? providerData ?? {};
   const quotation = outer?.data?.quotation ?? outer?.quotation ?? outer;
   const providerFee = Number(
-    quotation?.totalFees ?? quotation?.fee ?? quotation?.charge ?? quotation?.totalFee ?? 0
+    quotation?.totalFees ?? quotation?.fee ?? quotation?.charge ?? quotation?.totalFee ?? quotation?.charges ?? 0
   ) || 0;
   const platformMarkup = +(providerFee * PLATFORM_MARKUP_RATE).toFixed(2);
   const totalFee = +(providerFee + platformMarkup).toFixed(2);

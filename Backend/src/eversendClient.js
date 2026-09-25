@@ -32,6 +32,25 @@ const eversendOrigin =
   (process.env.ALLOWED_ORIGIN || '').split(',')[0].trim() ||
   undefined;
 
+function humanizeProviderMessage(message) {
+  const text = String(message || '').replace(/^ValidationError:\s*/i, '').trim();
+  const minimum = text.match(/minimum (?:destination )?amount should be\s+(.+)/i);
+  if (minimum) {
+    return `Increase the amount to at least ${minimum[1].replace(/[".]+$/, '')} and try again.`;
+  }
+  const supportedCurrencies = text.match(/currency.*must be one of\s+(.+)/i);
+  if (supportedCurrencies) {
+    return `This payment method does not support that currency. Choose one of ${supportedCurrencies[1].replace(/[".]+$/, '')}.`;
+  }
+  if (/^currency not supported$/i.test(text)) {
+    return 'This currency is not supported for this payment method. Choose another supported currency.';
+  }
+  if (/amounttype.*required/i.test(text)) {
+    return 'The transfer amount type is missing. Refresh the quote and try again.';
+  }
+  return text || 'The provider could not complete this request. Please review the amount and corridor details.';
+}
+
 /**
  * Thin wrapper around the Eversend REST API.
  *
@@ -156,13 +175,14 @@ class EversendClient {
       // reached the app before this fix; unwrap one level of nesting
       // if the field is itself an object rather than a string.
       const rawMessage = err.response?.data?.message ?? err.response?.data?.error;
-      const message =
+      const providerMessage =
         (typeof rawMessage === 'string' && rawMessage) ||
         (rawMessage && typeof rawMessage === 'object' && typeof rawMessage.message === 'string' && rawMessage.message) ||
         // Never say "Eversend" to the user — see the copy rule
         // established across the whole app; this specific message
         // used to name the provider directly.
         (err.response ? 'Something went wrong on our end. Please try again.' : "We couldn't complete this right now. Please try again in a moment.");
+      const message = err.response ? humanizeProviderMessage(providerMessage) : providerMessage;
       const normalized = new Error(message);
       normalized.status = status || 502;
       normalized.details = err.response?.data;

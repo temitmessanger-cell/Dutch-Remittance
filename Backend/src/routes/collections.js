@@ -3,37 +3,20 @@ const { eversend } = require('../eversendClient');
 const { requireAppUser } = require('../middleware/requireAppUser');
 const { supabaseAdmin } = require('../supabaseClient');
 const { applyPlatformMarkup } = require('../paymentRouter');
-const { validateDepositAmountUsd, convertToUsd, convertFromUsd, getBalanceUsd, credit, MIN_DEPOSIT_USD, MAX_DEPOSIT_USD, MAX_TOTAL_BALANCE_USD } = require('../walletLedger');
+const { validateDepositAmountUsd, convertToUsd, getBalanceUsd, credit, MIN_DEPOSIT_USD, MAX_DEPOSIT_USD, MAX_TOTAL_BALANCE_USD } = require('../walletLedger');
 
 const router = express.Router();
 
 // GET /api/v1/collections/deposit-limits?currency=XAF
 // Returns the real min/max deposit amount for the given currency, so
-// the app can show "Minimum deposit: 800 XAF · Maximum: 7,000,000
-// XAF" up front on the deposit screen, before the user even types an
-// amount, instead of only finding out after a rejected attempt.
-//
-// XAF is a fixed, product-confirmed figure (800 min / 7,000,000 max)
-// rather than derived from the general $1-$5000 USD limits — those
-// two numbers don't correspond to the same USD range (800 XAF is
-// roughly $1.30, but 7,000,000 XAF is roughly $11,500, well above the
-// general $5000 cap), so XAF has its own real, deliberately-set
-// range. Every other currency falls back to the general $1-$5000
-// limits, live-converted via convertFromUsd — a real number in that
-// currency, not a rough estimate.
-const FIXED_CURRENCY_LIMITS = {
-  XAF: { min: 700, max: 7000000 },
-};
-
-// Same verifiable-deployment pattern used for the OTP route fix
-// earlier — hit GET /api/v1/collections/deposit-limits/version
-// directly after deploying to confirm this exact file (with the real
-// 800 XAF minimum) is actually live, before assuming a reported wrong
-// number is a new bug rather than a stale deploy.
-const DEPOSIT_LIMITS_VERSION = 'xaf-700-7000000-v2';
+// the app can show the provider's real minimum and maximum before the
+// user types an amount, instead of only finding out after a rejection.
+// Values come from Eversend's collection-fee response, because deposit
+// limits differ from payout and wallet-exchange limits.
+const DEPOSIT_LIMITS_VERSION = 'provider-collection-limits-v1';
 
 router.get('/deposit-limits/version', (req, res) => {
-  res.json({ version: DEPOSIT_LIMITS_VERSION, fixedLimits: FIXED_CURRENCY_LIMITS });
+  res.json({ version: DEPOSIT_LIMITS_VERSION, source: 'eversend.collections.fees' });
 });
 
 router.get('/deposit-limits', requireAppUser, async (req, res, next) => {
@@ -41,20 +24,20 @@ router.get('/deposit-limits', requireAppUser, async (req, res, next) => {
     const currency = (req.query.currency || '').toUpperCase();
     if (!currency) return res.status(400).json({ error: 'currency is required.' });
 
-    if (FIXED_CURRENCY_LIMITS[currency]) {
-      return res.json({ currency, ...FIXED_CURRENCY_LIMITS[currency], source: 'fixed', routeVersion: DEPOSIT_LIMITS_VERSION });
+    const data = await eversend.post('/collections/fees', {
+      amount: 1000,
+      currency,
+      method: 'momo',
+    });
+    const providerData = data?.data || {};
+    const min = Number(providerData.min_load_amount);
+    const max = Number(providerData.max_load_amount);
+
+    if (!(min > 0) || !(max > 0)) {
+      return res.status(502).json({ error: `Couldn't determine real deposit limits for ${currency} right now.` });
     }
 
-    const [min, max] = await Promise.all([
-      convertFromUsd(MIN_DEPOSIT_USD, currency),
-      convertFromUsd(MAX_DEPOSIT_USD, currency),
-    ]);
-
-    if (min == null || max == null) {
-      return res.status(502).json({ error: `Couldn't determine deposit limits for ${currency} right now.` });
-    }
-
-    res.json({ currency, min, max, source: 'converted', routeVersion: DEPOSIT_LIMITS_VERSION });
+    res.json({ currency, min, max, source: 'eversend', routeVersion: DEPOSIT_LIMITS_VERSION });
   } catch (err) {
     next(err);
   }
@@ -209,21 +192,6 @@ router.post('/momo', requireAppUser, async (req, res, next) => {
     // specify a separate creditAmount (see the comment above).
     const realCreditAmount = creditAmount != null ? Number(creditAmount) : Number(amount);
 
-    // Fixed, product-confirmed per-currency limits (currently just
-    // XAF: 800 min / 7,000,000 max) checked first, since these don't
-    // correspond to the same USD range as the general $1-$5000 limits
-    // below — see the FIXED_CURRENCY_LIMITS comment above
-    // GET /deposit-limits for the full reasoning.
-    const fixedLimit = FIXED_CURRENCY_LIMITS[currency.toUpperCase()];
-    if (fixedLimit) {
-      if (realCreditAmount < fixedLimit.min) {
-        return res.status(400).json({ error: `The minimum deposit is ${fixedLimit.min.toLocaleString()} ${currency}.` });
-      }
-      if (realCreditAmount > fixedLimit.max) {
-        return res.status(400).json({ error: `The maximum deposit is ${fixedLimit.max.toLocaleString()} ${currency} per transaction.` });
-      }
-    }
-
     // Real deposit-amount limits ($1 min, $5000 max per deposit,
     // $8000 total wallet balance cap) — previously nothing enforced
     // any of these. Checked against realCreditAmount (what actually
@@ -258,20 +226,11 @@ router.post('/momo', requireAppUser, async (req, res, next) => {
           : `Your wallet is already at the $${MAX_TOTAL_BALANCE_USD} balance limit. Spend or send some funds before depositing more.`,
       });
     }
-    // The general $1-$5000 per-transaction check only still applies
-    // to currencies WITHOUT a fixed limit — XAF's already-passed
-    // fixed check above covers the per-transaction bound for XAF, and
-    // re-running the generic $1-$5000 check against it would be
-    // wrong (800 XAF ≈ $1.30 passes fine, but XAF's real max of
-    // 7,000,000 ≈ $11,500 would incorrectly fail the generic $5000
-    // cap).
-    if (!fixedLimit) {
-      if (creditAmountUsd < MIN_DEPOSIT_USD) {
-        return res.status(400).json({ error: `The minimum deposit is $${MIN_DEPOSIT_USD}.` });
-      }
-      if (creditAmountUsd > MAX_DEPOSIT_USD) {
-        return res.status(400).json({ error: `The maximum deposit is $${MAX_DEPOSIT_USD} per transaction.` });
-      }
+    if (creditAmountUsd < MIN_DEPOSIT_USD) {
+      return res.status(400).json({ error: `The minimum deposit is $${MIN_DEPOSIT_USD}.` });
+    }
+    if (creditAmountUsd > MAX_DEPOSIT_USD) {
+      return res.status(400).json({ error: `The maximum deposit is $${MAX_DEPOSIT_USD} per transaction.` });
     }
 
     const data = await eversend.post('/collections/momo', {
