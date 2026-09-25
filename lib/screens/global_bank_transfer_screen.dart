@@ -39,7 +39,16 @@ import 'package:dutch_remit/components/shared/money_flow_animation.dart';
 class GlobalBankTransferScreen extends StatefulWidget {
   final Map<String, dynamic> user;
   final String? userAuthKey;
-  const GlobalBankTransferScreen({Key? key, required this.user, this.userAuthKey}) : super(key: key);
+  final PayoutCountryInfo? initialDestination;
+  final String initialSourceCurrency;
+
+  const GlobalBankTransferScreen({
+    Key? key,
+    required this.user,
+    this.userAuthKey,
+    this.initialDestination,
+    this.initialSourceCurrency = 'USD',
+  }) : super(key: key);
 
   @override
   State<GlobalBankTransferScreen> createState() => _GlobalBankTransferScreenState();
@@ -85,6 +94,8 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
   @override
   void initState() {
     super.initState();
+    _sourceCurrency = widget.initialSourceCurrency;
+    _destination = widget.initialDestination ?? kBankPayoutCountries.first;
     if (_needsBankPicker) _loadBanks();
     _fetchQuote();
     _amountController.addListener(_onAmountChanged);

@@ -98,6 +98,15 @@ const List<AfricanCountryInfo> kAfricanCountries = [
 final List<AfricanCountryInfo> kLiveEversendCorridors =
     kAfricanCountries.where((c) => c.liveConfirmed).toList();
 
+/// Mobile-money collection corridors confirmed by the live
+/// POST /collections/fees endpoint. This is intentionally narrower
+/// than payout corridors: NGN uses a bank/virtual-account flow, while
+/// XOF, TZS, and ZMW are not enabled for Eversend collection fees.
+final List<AfricanCountryInfo> kLiveMobileMoneyCollectionCorridors =
+  kLiveEversendCorridors
+    .where((c) => const {'CM', 'GH', 'KE', 'RW', 'UG'}.contains(c.countryCode))
+    .toList();
+
 /// All Eversend-intended corridors (confirmed + inferred).
 /// Use this for country pickers that show the full range with tags.
 final List<AfricanCountryInfo> kAllEversendCorridors =

@@ -45,7 +45,7 @@ enum _DepositStep { enterPhone, enterOtp, processing, success }
 
 class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
   _DepositStep _step = _DepositStep.enterPhone;
-  AfricanCountryInfo _country = kLiveEversendCorridors.first;
+  AfricanCountryInfo _country = kLiveMobileMoneyCollectionCorridors.first;
   final TextEditingController _phoneController = TextEditingController();
   String _fullPhoneNumber = '';
   final List<TextEditingController> _otpControllers =
@@ -200,9 +200,9 @@ class _MobileMoneyDepositScreenState extends State<MobileMoneyDepositScreen> {
         child: SizedBox(
           height: MediaQuery.of(context).size.height * 0.6,
           child: ListView.builder(
-            itemCount: kLiveEversendCorridors.length,
+            itemCount: kLiveMobileMoneyCollectionCorridors.length,
             itemBuilder: (context, index) {
-              final c = kLiveEversendCorridors[index];
+              final c = kLiveMobileMoneyCollectionCorridors[index];
               return ListTile(
                 leading: Text(c.flagEmoji, style: TextStyle(fontSize: 22)),
                 title: Text(c.countryName,

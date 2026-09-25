@@ -67,14 +67,16 @@ router.get('/deposit-limits', requireAppUser, async (req, res, next) => {
 // Same 1.2%-on-provider-fee margin as payouts (see paymentRouter.js)
 // — returned as one combined `feeBreakdown.totalFee`, which is the
 // only number the app should ever show a user (never the provider/
-// platform split, per the "combined, not separate" pricing rule).
+// platform split, per the "combined, not separate" pricing rule. The
+// app-facing route remains GET; the upstream Eversend fee operation is
+// POST /collections/fees with the same values in its JSON body.
 router.get('/fees', requireAppUser, async (req, res, next) => {
   try {
     const { amount, currency, method = 'momo' } = req.query;
     if (!amount || !currency) {
       return res.status(400).json({ error: 'amount and currency are required.' });
     }
-    const data = await eversend.get('/collections/fees', { amount, currency, method });
+    const data = await eversend.post('/collections/fees', { amount, currency, method });
     res.json(applyPlatformMarkup(data));
   } catch (err) {
     next(err);
