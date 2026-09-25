@@ -41,6 +41,8 @@ class GlobalBankTransferScreen extends StatefulWidget {
   final String? userAuthKey;
   final PayoutCountryInfo? initialDestination;
   final String initialSourceCurrency;
+  final bool lockSourceCurrency;
+  final List<PayoutCountryInfo>? allowedDestinations;
 
   const GlobalBankTransferScreen({
     Key? key,
@@ -48,6 +50,8 @@ class GlobalBankTransferScreen extends StatefulWidget {
     this.userAuthKey,
     this.initialDestination,
     this.initialSourceCurrency = 'USD',
+    this.lockSourceCurrency = false,
+    this.allowedDestinations,
   }) : super(key: key);
 
   @override
@@ -90,12 +94,14 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
   Timer? _debounce;
 
   bool get _isGuest => widget.user.isEmpty || widget.user['email'] == null;
+  List<PayoutCountryInfo> get _availableDestinations =>
+      widget.allowedDestinations ?? kBankPayoutCountries;
 
   @override
   void initState() {
     super.initState();
     _sourceCurrency = widget.initialSourceCurrency;
-    _destination = widget.initialDestination ?? kBankPayoutCountries.first;
+    _destination = widget.initialDestination ?? _availableDestinations.first;
     if (_needsBankPicker) _loadBanks();
     _fetchQuote();
     _amountController.addListener(_onAmountChanged);
@@ -230,9 +236,9 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
         child: SizedBox(
           height: MediaQuery.of(context).size.height * 0.6,
           child: ListView.builder(
-            itemCount: kBankPayoutCountries.length,
+            itemCount: _availableDestinations.length,
             itemBuilder: (context, index) {
-              final c = kBankPayoutCountries[index];
+              final c = _availableDestinations[index];
               return ListTile(
                 leading: Text(c.flagEmoji, style: TextStyle(fontSize: 22)),
                 title: Text(c.countryName, style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
@@ -602,7 +608,7 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
                 ),
               ),
               InkWell(
-                onTap: _pickSourceCurrency,
+                onTap: widget.lockSourceCurrency ? null : _pickSourceCurrency,
                 borderRadius: BorderRadius.circular(AppRadii.pill),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -612,7 +618,8 @@ class _GlobalBankTransferScreenState extends State<GlobalBankTransferScreen> {
                       Text(sourceInfo.flagEmoji, style: TextStyle(fontSize: 18)),
                       const SizedBox(width: 6),
                       Text(sourceInfo.currencyCode, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink, fontSize: 14)),
-                      Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textMuted, size: 18),
+                      if (!widget.lockSourceCurrency)
+                        Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textMuted, size: 18),
                     ],
                   ),
                 ),

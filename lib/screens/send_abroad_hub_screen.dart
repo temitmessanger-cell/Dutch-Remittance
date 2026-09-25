@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:dutch_remit/utilities/app_theme.dart';
 import 'package:dutch_remit/screens/global_bank_transfer_screen.dart';
 import 'package:dutch_remit/screens/africa_corridor_screen.dart';
+import 'package:dutch_remit/screens/gifts_screen.dart';
+import 'package:dutch_remit/screens/quick_transfer_screen.dart';
+import 'package:dutch_remit/screens/explore_product_screen.dart';
+import 'package:dutch_remit/utilities/african_country_data.dart';
 import 'package:dutch_remit/utilities/payout_country_data.dart';
 
 /// The "Send Abroad" bottom-nav tab's home: a horizontal sub-navigation
@@ -22,7 +26,12 @@ class _SendAbroadHubScreenState extends State<SendAbroadHubScreen> {
   int _activeSubTab = 0;
 
   static const List<String> _subTabLabels = [
+    "Global Transfer",
+    "Diaspora to Africa",
     "Africa → Africa",
+    "Quick Transfer",
+    "Explore Product",
+    "Gifts",
     "United States → Africa",
     "Europe → Africa",
     "Africa → United States",
@@ -97,14 +106,34 @@ class _SendAbroadHubScreenState extends State<SendAbroadHubScreen> {
   Widget _buildActiveSubTab() {
     switch (_activeSubTab) {
       case 0:
+        return GlobalBankTransferScreen(
+          user: widget.user,
+          userAuthKey: widget.userAuthKey,
+        );
+      case 1:
+        return AfricaCorridorScreen(
+          user: widget.user,
+          userAuthKey: widget.userAuthKey,
+          title: "Diaspora to Africa",
+          subtitle: "Send money from anywhere in the world straight to family and friends across Africa.",
+          variant: AfricaCorridorVariant.diaspora,
+        );
+      case 2:
         return AfricaCorridorScreen(
           user: widget.user,
           userAuthKey: widget.userAuthKey,
           title: "Africa → Africa",
           subtitle: "Send money between African countries, fast and transparently.",
           variant: AfricaCorridorVariant.africaToAfrica,
+          allowedDestinations: kLiveEversendCorridors,
         );
-      case 1:
+      case 3:
+        return QuickTransferScreen(user: widget.user, userAuthKey: widget.userAuthKey);
+      case 4:
+        return ExploreProductScreen(user: widget.user, userAuthKey: widget.userAuthKey);
+      case 5:
+        return GiftsScreen(user: widget.user, userAuthKey: widget.userAuthKey);
+      case 6:
         return AfricaCorridorScreen(
           user: widget.user,
           userAuthKey: widget.userAuthKey,
@@ -112,8 +141,10 @@ class _SendAbroadHubScreenState extends State<SendAbroadHubScreen> {
           subtitle: "Send money from the United States to family and friends across Africa.",
           variant: AfricaCorridorVariant.diaspora,
           initialSourceCurrency: 'USD',
+          lockSourceCurrency: true,
+          allowedDestinations: kLiveEversendCorridors,
         );
-      case 2:
+      case 7:
         return AfricaCorridorScreen(
           user: widget.user,
           userAuthKey: widget.userAuthKey,
@@ -121,34 +152,44 @@ class _SendAbroadHubScreenState extends State<SendAbroadHubScreen> {
           subtitle: "Send money from Europe to family and friends across Africa.",
           variant: AfricaCorridorVariant.diaspora,
           initialSourceCurrency: 'EUR',
+          lockSourceCurrency: true,
+          allowedDestinations: kLiveEversendCorridors,
         );
-      case 3:
+      case 8:
         return GlobalBankTransferScreen(
           user: widget.user,
           userAuthKey: widget.userAuthKey,
           initialSourceCurrency: 'XAF',
-          initialDestination: kBankPayoutCountries.firstWhere((c) => c.countryCode == 'US'),
+          initialDestination: kUnitedStatesPayoutCountries.first,
+          lockSourceCurrency: true,
+          allowedDestinations: kUnitedStatesPayoutCountries,
         );
-      case 4:
+      case 9:
         return GlobalBankTransferScreen(
           user: widget.user,
           userAuthKey: widget.userAuthKey,
           initialSourceCurrency: 'XAF',
-          initialDestination: kBankPayoutCountries.first,
+          initialDestination: kEuropeanBankPayoutCountries.first,
+          lockSourceCurrency: true,
+          allowedDestinations: kEuropeanBankPayoutCountries,
         );
-      case 5:
+      case 10:
         return GlobalBankTransferScreen(
           user: widget.user,
           userAuthKey: widget.userAuthKey,
           initialSourceCurrency: 'USD',
-          initialDestination: kBankPayoutCountries.first,
+          initialDestination: kEuropeanBankPayoutCountries.first,
+          lockSourceCurrency: true,
+          allowedDestinations: kEuropeanBankPayoutCountries,
         );
-      case 6:
+      case 11:
         return GlobalBankTransferScreen(
           user: widget.user,
           userAuthKey: widget.userAuthKey,
           initialSourceCurrency: 'EUR',
-          initialDestination: kBankPayoutCountries.firstWhere((c) => c.countryCode == 'US'),
+          initialDestination: kUnitedStatesPayoutCountries.first,
+          lockSourceCurrency: true,
+          allowedDestinations: kUnitedStatesPayoutCountries,
         );
       default:
         return AfricaCorridorScreen(

@@ -36,52 +36,15 @@
 
 const EVERSEND_PAYOUT_COUNTRIES = [
   { code: 'AT', name: 'Austria', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
-  // Andorra, Monaco, San Marino and Vatican City use the euro under
-  // formal monetary agreements and are within SEPA's geographic
-  // scope for EUR bank transfers (confirmed: European Commission's
-  // own SEPA page, ec.europa.eu/finance) — added on the same
-  // "reachable via the same EUR/SEPA rail as confirmed EU members"
-  // basis as the other currency-inferred entries below; not
-  // individually pulled from GET /v1/payouts/countries.
-  { code: 'AD', name: 'Andorra', currency: 'EUR', methods: ['bank'] },
   { code: 'BE', name: 'Belgium', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
-  // Benin, Burkina Faso, Guinea-Bissau, Mali, Niger and Togo all
-  // share the West African CFA franc (XOF) with Côte d'Ivoire and
-  // Senegal below — added on that currency-sharing basis, not a
-  // fresh live pull confirming each one individually; mobile money
-  // coverage per country can still vary even within one currency
-  // zone, so re-verify against GET /v1/payouts/countries.
-  { code: 'BJ', name: 'Benin', currency: 'XOF', methods: ['momo'] },
-  { code: 'BF', name: 'Burkina Faso', currency: 'XOF', methods: ['momo'] },
-  // Bulgaria joined the eurozone 1 January 2026 — added here on that
-  // basis rather than a fresh live pull confirming Eversend enabled
-  // it specifically; re-verify against GET /v1/payouts/countries.
-  { code: 'BG', name: 'Bulgaria', currency: 'EUR', methods: ['bank'] },
   { code: 'CI', name: "Côte d'Ivoire", currency: 'XOF', methods: ['momo'], liveConfirmed: true },
   { code: 'CM', name: 'Cameroon', currency: 'XAF', methods: ['momo'], liveConfirmed: true },
   { code: 'CY', name: 'Cyprus', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
   { code: 'DE', name: 'Germany', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
   { code: 'EE', name: 'Estonia', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
-  // Same XAF currency-sharing basis as the XOF countries above —
-  // Cameroon is the one Eversend has confirmed live; these five share
-  // its currency but haven't been individually re-verified.
-  { code: 'GA', name: 'Gabon', currency: 'XAF', methods: ['momo'] },
-  { code: 'GQ', name: 'Equatorial Guinea', currency: 'XAF', methods: ['momo'] },
-  { code: 'GW', name: 'Guinea-Bissau', currency: 'XOF', methods: ['momo'] },
-  { code: 'ES', name: 'Spain', currency: 'EUR', methods: ['bank'] },
   { code: 'FI', name: 'Finland', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
   { code: 'FR', name: 'France', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
   { code: 'GB', name: 'United Kingdom', currency: 'GBP', methods: ['bank'], liveConfirmed: true },
-  // Jersey, Guernsey, Isle of Man and Gibraltar each issue their own
-  // pound (JEP/GGP/IMP/GIP), pegged 1:1 to GBP and reachable via the
-  // same UK bank-transfer rails — added on that reachability basis,
-  // not because their local currency code equals GBP; a payout
-  // actually confirmed live for one of these should double-check the
-  // beneficiary's account is GBP-denominated before relying on this.
-  { code: 'JE', name: 'Jersey', currency: 'GBP', methods: ['bank'] },
-  { code: 'GG', name: 'Guernsey', currency: 'GBP', methods: ['bank'] },
-  { code: 'IM', name: 'Isle of Man', currency: 'GBP', methods: ['bank'] },
-  { code: 'GI', name: 'Gibraltar', currency: 'GBP', methods: ['bank'] },
   { code: 'GH', name: 'Ghana', currency: 'GHS', methods: ['momo', 'bank'], liveConfirmed: true },
   { code: 'GR', name: 'Greece', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
   { code: 'HR', name: 'Croatia', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
@@ -91,24 +54,17 @@ const EVERSEND_PAYOUT_COUNTRIES = [
   { code: 'LT', name: 'Lithuania', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
   { code: 'LU', name: 'Luxembourg', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
   { code: 'LV', name: 'Latvia', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
-  { code: 'ML', name: 'Mali', currency: 'XOF', methods: ['momo'] },
   { code: 'MT', name: 'Malta', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
-  { code: 'MC', name: 'Monaco', currency: 'EUR', methods: ['bank'] },
-  { code: 'NE', name: 'Niger', currency: 'XOF', methods: ['momo'] },
   { code: 'NG', name: 'Nigeria', currency: 'NGN', methods: ['bank'], liveConfirmed: true },
   { code: 'NL', name: 'Netherlands', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
   { code: 'PT', name: 'Portugal', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
   { code: 'RW', name: 'Rwanda', currency: 'RWF', methods: ['momo'], liveConfirmed: true },
-  { code: 'SM', name: 'San Marino', currency: 'EUR', methods: ['bank'] },
   { code: 'SI', name: 'Slovenia', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
   { code: 'SK', name: 'Slovakia', currency: 'EUR', methods: ['bank'], liveConfirmed: true },
   { code: 'SN', name: 'Senegal', currency: 'XOF', methods: ['momo'], liveConfirmed: true },
-  { code: 'TD', name: 'Chad', currency: 'XAF', methods: ['momo'] },
-  { code: 'TG', name: 'Togo', currency: 'XOF', methods: ['momo'] },
   { code: 'TZ', name: 'Tanzania', currency: 'TZS', methods: ['momo'], liveConfirmed: true },
   { code: 'UG', name: 'Uganda', currency: 'UGX', methods: ['momo', 'bank'], liveConfirmed: true },
   { code: 'US', name: 'United States', currency: 'USD', methods: ['bank'], liveConfirmed: true },
-  { code: 'VA', name: 'Vatican City', currency: 'EUR', methods: ['bank'] },
   { code: 'ZM', name: 'Zambia', currency: 'ZMW', methods: ['momo'], liveConfirmed: true },
 ];
 

@@ -48,3 +48,10 @@ const List<PayoutCountryInfo> kBankPayoutCountries = [
   PayoutCountryInfo(countryName: 'Uganda', countryCode: 'UG', currencyCode: 'UGX', flagEmoji: '🇺🇬'),
   PayoutCountryInfo(countryName: 'United States', countryCode: 'US', currencyCode: 'USD', flagEmoji: '🇺🇸'),
 ];
+
+final List<PayoutCountryInfo> kEuropeanBankPayoutCountries =
+    kBankPayoutCountries.where((country) => country.countryCode != 'US' &&
+        !{'GH', 'KE', 'NG', 'UG'}.contains(country.countryCode)).toList(growable: false);
+
+final List<PayoutCountryInfo> kUnitedStatesPayoutCountries =
+    kBankPayoutCountries.where((country) => country.countryCode == 'US').toList(growable: false);

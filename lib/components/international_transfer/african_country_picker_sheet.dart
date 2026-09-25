@@ -3,7 +3,7 @@ import 'package:dutch_remit/utilities/app_theme.dart';
 import 'package:dutch_remit/utilities/african_country_data.dart';
 
 Future<AfricanCountryInfo?> showAfricanCountryPicker(
-    BuildContext context, {required String currentCountry, bool onlyLiveCorridors = false}) {
+  BuildContext context, {required String currentCountry, bool onlyLiveCorridors = false, List<AfricanCountryInfo>? countries}) {
   return showModalBottomSheet<AfricanCountryInfo>(
     context: context,
     isScrollControlled: true,
@@ -11,15 +11,16 @@ Future<AfricanCountryInfo?> showAfricanCountryPicker(
     shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.lg))),
     builder: (context) => _AfricanCountryPickerSheet(
-        currentCountry: currentCountry, onlyLiveCorridors: onlyLiveCorridors),
+        currentCountry: currentCountry, onlyLiveCorridors: onlyLiveCorridors, countries: countries),
   );
 }
 
 class _AfricanCountryPickerSheet extends StatefulWidget {
   final String currentCountry;
   final bool onlyLiveCorridors;
+    final List<AfricanCountryInfo>? countries;
   const _AfricanCountryPickerSheet(
-      {required this.currentCountry, this.onlyLiveCorridors = false});
+      {required this.currentCountry, this.onlyLiveCorridors = false, this.countries});
 
   @override
   State<_AfricanCountryPickerSheet> createState() => _AfricanCountryPickerSheetState();
@@ -30,7 +31,7 @@ class _AfricanCountryPickerSheetState extends State<_AfricanCountryPickerSheet> 
 
   @override
   Widget build(BuildContext context) {
-    final baseList = widget.onlyLiveCorridors ? kLiveEversendCorridors : kAfricanCountries;
+    final baseList = widget.countries ?? (widget.onlyLiveCorridors ? kLiveEversendCorridors : kAfricanCountries);
     final filtered = baseList.where((c) {
       if (_query.isEmpty) return true;
       final q = _query.toLowerCase();

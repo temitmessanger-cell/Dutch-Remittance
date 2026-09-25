@@ -45,6 +45,8 @@ class AfricaCorridorScreen extends StatefulWidget {
   final AfricaCorridorVariant variant;
   final AfricanCountryInfo? initialDestination;
   final String initialSourceCurrency;
+  final bool lockSourceCurrency;
+  final List<AfricanCountryInfo>? allowedDestinations;
 
   const AfricaCorridorScreen({
     Key? key,
@@ -55,6 +57,8 @@ class AfricaCorridorScreen extends StatefulWidget {
     this.variant = AfricaCorridorVariant.diaspora,
     this.initialDestination,
     this.initialSourceCurrency = 'USD',
+    this.lockSourceCurrency = false,
+    this.allowedDestinations,
   }) : super(key: key);
 
   @override
@@ -126,20 +130,22 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
 
   bool get _isDiaspora => widget.variant == AfricaCorridorVariant.diaspora;
   bool get _isGuest => widget.user.isEmpty || widget.user['email'] == null;
+  List<AfricanCountryInfo> get _availableDestinations =>
+      widget.allowedDestinations ?? kLiveEversendCorridors;
 
   @override
   void initState() {
     super.initState();
     _amountController.text = _isDiaspora ? '500' : '100000';
-    _destination = widget.initialDestination ?? kLiveEversendCorridors.first;
+    _destination = widget.initialDestination ?? _availableDestinations.first;
     _sourceCurrency = widget.initialSourceCurrency;
     if (!_isDiaspora) {
       // Africa-to-Africa: default source is a *different* African
       // country from the destination, e.g. Nigeria -> Cameroon.
-      _sourceAfricanCountry = kLiveEversendCorridors
+      _sourceAfricanCountry = _availableDestinations
           .firstWhere((c) => c.countryName != _destination.countryName);
     }
-    _fetchSupportedMethods();
+    _initializeCorridor();
     // Real fix: previously gated behind hasLiveRate (a static flag,
     // true only for South Africa/ZAR) because the old rate source
     // (Frankfurter) genuinely couldn't quote most African currencies.
@@ -151,6 +157,11 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
     // flag here just meant most real destinations never even tried.
     _fetchQuote();
     _amountController.addListener(_onAmountChanged);
+  }
+
+  Future<void> _initializeCorridor() async {
+    await _fetchSupportedMethods();
+    if (mounted) _fetchQuote();
   }
 
   @override
@@ -402,8 +413,11 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
   }
 
   Future<void> _pickSourceAfricanCountry() async {
+    final sourceCountries = _availableDestinations
+      .where((country) => country.countryCode != _destination.countryCode)
+      .toList(growable: false);
     final picked = await showAfricanCountryPicker(
-        context, currentCountry: _sourceAfricanCountry?.countryName ?? '', onlyLiveCorridors: true);
+      context, currentCountry: _sourceAfricanCountry?.countryName ?? '', countries: sourceCountries);
     if (picked != null) {
       setState(() {
         _sourceAfricanCountry = picked;
@@ -416,16 +430,20 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
 
   Future<void> _pickDestination() async {
     final picked = await showAfricanCountryPicker(context,
-        currentCountry: _destination.countryName, onlyLiveCorridors: true);
+        currentCountry: _destination.countryName, countries: _availableDestinations);
     if (picked != null) {
       setState(() {
         _destination = picked;
         _convertedAmount = null;
         _exchangeRate = null;
       });
-      _fetchQuote();
-      _fetchSupportedMethods();
+      _refreshDestinationMethodsAndQuote();
     }
+  }
+
+  Future<void> _refreshDestinationMethodsAndQuote() async {
+    await _fetchSupportedMethods();
+    if (mounted) _fetchQuote();
   }
 
   void _showProcessingOverlay() {
@@ -807,7 +825,7 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                     ),
                   ),
                   InkWell(
-                    onTap: _pickSourceCurrency,
+                    onTap: widget.lockSourceCurrency ? null : _pickSourceCurrency,
                     borderRadius: BorderRadius.circular(AppRadii.pill),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -819,7 +837,8 @@ class _AfricaCorridorScreenState extends State<AfricaCorridorScreen> {
                           const SizedBox(width: 6),
                           Text(sourceInfo.currencyCode,
                               style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink, fontSize: 14)),
-                          Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textMuted, size: 18),
+                          if (!widget.lockSourceCurrency)
+                            Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textMuted, size: 18),
                         ],
                       ),
                     ),
